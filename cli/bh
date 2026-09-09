@@ -1,0 +1,1162 @@
+#!/usr/bin/env python3
+"""bh: the Boathouse command line. Standard library only, so it installs by copy.
+
+  bh signup "<workspace name>" <email> [--api https://api.boathousecloud.com]   new workspace, no key needed
+  bh claim <code>                   the one-time code from your account page: fetches your key and logs in
+  bh login <https://api.boathousecloud.com> <project-key>
+  bh whoami | bh logout <workspace>   your key is you, in every workspace you belong to; aim a command with --ws <workspace> or name a tool <workspace>/<tool>
+  bh mail status | set --host ... --user ... | test   (host owner) the mailbox Boat House sends share emails from
+  bh deploy [--name "Finance"] [--note "why"] [--slug finance]     in the tool's folder
+  bh ls | bh status <tool> | bh logs <tool> [--tail N] [--since 1h]
+  bh rollback <tool> [--to N] | bh restart <tool> | bh releases <tool>
+  bh share <tool> <email> --tier viewer|editor|admin [--label x] | bh unshare <tool> <email>   prints an invite link for new people
+  bh pull <tool> [dir]              fetch the live source (admins); bh deploy pushes it back, refusing a stale base
+  bh secrets ls <tool> | bh secrets set <tool> NAME [value | -] | bh secrets rm <tool> NAME
+  bh users [add <email> --role member|owner|guest] [rm <email>] [invite <email>]
+  bh domain ls | check <name> | buy <name> [--yes] [--to <tool>] | attach <name> [--to <tool>] | point <name> --to <tool> | dns <name> | repoint <name> | primary <name> | detach <name> | free
+  bh billing | card | topup <dollars> [--yes] | autorefill <dollars> [--cap dollars] | grant <ws> <dollars> [--memo] | stripe-keys | meter
+  bh prices
+  bh registrar status | connect [--sandbox] | wait | keys
+  bh keys [create --name x [--for email]] [revoke <id>]
+  bh rm <tool> [--purge] | bh audit | bh whoami
+  bh export [<tool>] [--dir .] [--all]   one .tar.gz per tool: source/, database.sql, data/, README.txt
+  bh restore <tool> [--from YYYY-MM-DD] [--yes]   database and files back from a nightly backup; shows the plan first
+  bh update | bh skill              re-download bh from the platform; install/refresh the Claude Code skill
+"""
+from __future__ import annotations
+
+import argparse
+import fnmatch
+import hashlib
+import io
+import json
+import os
+import re
+import sys
+import tarfile
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
+from decimal import Decimal, InvalidOperation
+from pathlib import Path
+
+def _config_candidates():
+    """Where the login lives: the XDG place first, then a plain dotfolder for machines where ~/.config is not writable."""
+    xdg = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "boathouse" / "config.json"
+    return [xdg, Path.home() / ".boathouse" / "config.json"]
+
+
+CONFIG = (Path(os.environ["BH_CONFIG"]) if os.environ.get("BH_CONFIG")
+          else next((c for c in _config_candidates() if c.exists()), _config_candidates()[0]))
+
+
+def save_cfg(data: dict) -> Path:
+    global CONFIG
+    candidates = [CONFIG] if os.environ.get("BH_CONFIG") else list(dict.fromkeys([CONFIG] + _config_candidates()))
+    for c in candidates:
+        try:
+            c.parent.mkdir(parents=True, exist_ok=True)
+            c.write_text(json.dumps(data))
+            c.chmod(0o600)
+            CONFIG = c
+            return c
+        except PermissionError:
+            continue
+    die("could not write the login file: neither ~/.config/boathouse nor ~/.boathouse is writable")
+ALWAYS_EXCLUDE = {".git", "node_modules", "__pycache__", ".venv", "venv", ".env", ".DS_Store", ".mypy_cache", ".pytest_cache"}
+
+
+ACTIVE = {"ws": None}   # the workspace a command is aimed at: --ws, a <workspace>/<tool> name, or boathouse.json
+
+
+def read_config() -> dict:
+    """{"logins": [{api, key, workspace, email, domain}, ...], "default": <workspace>}; reads the old one-login file too."""
+    if not CONFIG.exists():
+        return {"logins": [], "default": None}
+    raw = json.loads(CONFIG.read_text())
+    if "logins" not in raw:
+        raw = {"logins": [{"api": raw["api"], "key": raw["key"], "workspace": raw.get("workspace"), "email": raw.get("email"), "domain": raw.get("domain")}],
+               "default": raw.get("workspace")}
+    if any(not l.get("workspace") for l in raw["logins"]) and not os.environ.get("BH_KEY"):
+        raw = _fill_workspaces(raw)      # an older file: learn the workspace names once, keep them
+    return raw
+
+
+def _fill_workspaces(cfg: dict) -> dict:
+    """An older login file has no workspace name; ask the API once and keep it."""
+    for l in cfg["logins"]:
+        if l.get("workspace"):
+            continue
+        os.environ["BH_API"], os.environ["BH_KEY"] = l["api"], l["key"]
+        try:
+            me = call("GET", "/api/whoami")
+            l.update(workspace=me["workspace"], email=me["email"], domain=me["domain"])
+        except SystemExit:
+            pass
+        finally:
+            del os.environ["BH_API"], os.environ["BH_KEY"]
+    if not cfg.get("default"):
+        cfg["default"] = next((l["workspace"] for l in cfg["logins"] if l.get("workspace")), None)
+    save_cfg(cfg)
+    return cfg
+
+
+def save_login(login: dict) -> Path:
+    cfg = read_config()
+    cfg["logins"] = [l for l in cfg["logins"] if not (l.get("workspace") == login.get("workspace") and l["api"] == login["api"])] + [login]
+    if not cfg.get("default") or len(cfg["logins"]) == 1:
+        cfg["default"] = login.get("workspace")
+    return save_cfg(cfg)
+
+
+def load_cfg():
+    api = os.environ.get("BH_API")
+    key = os.environ.get("BH_KEY")
+    if api and key:
+        return {"api": api.rstrip("/"), "key": key}
+    cfg = read_config()
+    if not cfg["logins"]:
+        die("not logged in. Run: bh claim <code>   (the code is on your account page)   or: bh login https://api.<platform> <project-key>")
+    want = ACTIVE["ws"] or cfg.get("default")
+    for l in cfg["logins"]:
+        if want is None or l.get("workspace") == want:
+            return l
+    for l in cfg["logins"]:
+        if l.get("workspace") == "*":            # an account key works everywhere the person belongs
+            return dict(l, default_ws=want or cfg.get("default"))
+    if ACTIVE["ws"]:
+        have = ", ".join(l.get("workspace") or "?" for l in cfg["logins"])
+        die(f"not logged in to workspace {ACTIVE['ws']} (logged in to: {have}). Sign in at the account page, pick {ACTIVE['ws']}, mint a key, then: bh claim <code>")
+    return cfg["logins"][0]
+
+
+def die(msg, code=1):
+    print(f"bh: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def workspace_name(cfg) -> str | None:
+    """The workspace a command means, by name: never the account key's '*'."""
+    ws = ACTIVE["ws"] or cfg.get("default_ws") or cfg.get("workspace")
+    return ws if ws and ws != "*" else None
+
+
+def auth_headers(cfg) -> dict:
+    h = {"Authorization": f"Bearer {cfg['key']}", "User-Agent": "bh/0.3"}
+    ws = workspace_name(cfg)
+    if ws:
+        h["Boathouse-Workspace"] = ws        # an account key is the person; this says which workspace the command means (not X-Boathouse-*: the gateway strips those)
+    return h
+
+
+def call(method, path, body=None, files=None, raw=False, timeout=900):
+    cfg = load_cfg()
+    url = cfg["api"] + path
+    headers = auth_headers(cfg)
+    data = None
+    if files:
+        boundary = uuid.uuid4().hex
+        buf = io.BytesIO()
+        for k, v in (body or {}).items():
+            if v is None:
+                continue
+            buf.write(f"--{boundary}\r\nContent-Disposition: form-data; name=\"{k}\"\r\n\r\n{v}\r\n".encode())
+        for k, (fname, content) in files.items():
+            buf.write(f"--{boundary}\r\nContent-Disposition: form-data; name=\"{k}\"; filename=\"{fname}\"\r\nContent-Type: application/octet-stream\r\n\r\n".encode())
+            buf.write(content)
+            buf.write(b"\r\n")
+        buf.write(f"--{boundary}--\r\n".encode())
+        data = buf.getvalue()
+        headers["Content-Type"] = f"multipart/form-data; boundary={boundary}"
+    elif body is not None:
+        data = json.dumps(body).encode()
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            payload = r.read()
+    except urllib.error.HTTPError as e:
+        payload = e.read().decode(errors="replace")
+        try:
+            detail = json.loads(payload).get("detail", payload)
+        except ValueError:
+            detail = payload
+        if isinstance(detail, dict):
+            detail = detail.get("error") or json.dumps(detail)
+        die(f"{detail}  (HTTP {e.code})")
+    except urllib.error.URLError as e:
+        die(f"cannot reach {cfg['api']}: {e.reason}")
+    if raw:
+        return payload.decode(errors="replace")
+    return json.loads(payload) if payload else None
+
+
+def out(obj):
+    print(json.dumps(obj, indent=2, ensure_ascii=False))
+
+
+def ago(ts):
+    if not ts:
+        return "-"
+    d = time.time() - float(ts)
+    for unit, s in (("d", 86400), ("h", 3600), ("m", 60)):
+        if d >= s:
+            return f"{int(d // s)}{unit} ago"
+    return "just now"
+
+
+# ---- packaging -------------------------------------------------------------------
+
+def read_ignore(root: Path):
+    pats = []
+    f = root / ".dockerignore"
+    if f.exists():
+        for line in f.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                pats.append(line.rstrip("/"))
+    return pats
+
+
+def pack(root: Path) -> bytes:
+    pats = read_ignore(root)
+
+    def skip(rel: str) -> bool:
+        parts = rel.split("/")
+        if any(p in ALWAYS_EXCLUDE or (p.startswith('.env.') and p not in {'.env.example', '.env.sample', '.env.template'}) for p in parts):
+            return True
+        return any(fnmatch.fnmatch(rel, p) or fnmatch.fnmatch(parts[-1], p) or rel.startswith(p + "/") for p in pats)
+
+    buf = io.BytesIO()
+    count = 0
+    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+        for path in sorted(root.rglob("*")):
+            rel = path.relative_to(root).as_posix()
+            if skip(rel) or path.is_dir():
+                continue
+            tf.add(path, arcname=rel, recursive=False)
+            count += 1
+    if not (root / "Dockerfile").exists() and not (root / "index.html").exists():
+        die("nothing to deploy here: a tool is a folder with a Dockerfile that listens on $PORT (8080), or a website folder with an index.html at the top")
+    return buf.getvalue()
+
+
+def guess_slug(root: Path) -> str:
+    meta = root / "boathouse.json"
+    if meta.exists():
+        s = json.loads(meta.read_text()).get("slug")
+        if s:
+            return s
+    return re.sub(r"[^a-z0-9-]", "-", root.name.lower()).strip("-")[:31]
+
+
+# ---- commands ------------------------------------------------------------------------
+
+def cmd_signup(a):
+    api = (a.api or (load_cfg()["api"] if CONFIG.exists() else "https://api.boathousecloud.com")).rstrip("/")
+    req = urllib.request.Request(api + "/api/signup", data=json.dumps({"workspace": a.name, "email": a.email, "code": getattr(a, "code", None)}).encode(),
+                                 headers={"Content-Type": "application/json", "User-Agent": "bh/0.3"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            j = json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        payload = e.read().decode(errors="replace")
+        try:
+            detail = json.loads(payload).get("detail", payload)
+        except ValueError:
+            detail = payload
+        die(f"{detail}  (HTTP {e.code})")
+    print(f"workspace {j['workspace']} created." + (f" Half price on every tool for 60 days, thanks to {j['referred_by']}." if j.get("referred_by") else ""))
+    print(f"tools    {j['home']}")
+    if j.get("invite_url"):
+        print(f"sign in  {j['invite_url']}   (the owner confirms their email and chooses a password)")
+    print(f"account  {j['account']}   (balance, card, project keys, people)")
+    plat = urllib.parse.urlparse(j["api"]).netloc.removeprefix("api.")
+    print(f"connect  curl -fsSL https://{plat}/install.sh | sh -s -- <code>   (one line: installs bh, logs in, teaches Claude Code; the code is on your account page)")
+    print(f"     or  bh login {j['api']} <key>")
+    print(f"MCP: {j['mcp']} with header Authorization: Bearer <key>")
+
+
+def cmd_login(a):
+    prior = {k: os.environ.get(k) for k in ("BH_API", "BH_KEY")}
+    os.environ["BH_API"], os.environ["BH_KEY"] = a.api.rstrip("/"), a.key
+    try:
+        me = call("GET", "/api/whoami")
+        who = call("GET", "/api/me")
+    finally:
+        for k, v in prior.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    if who.get("account_key"):
+        cfg = read_config()
+        cfg["logins"] = [l for l in cfg["logins"] if l["api"] != a.api.rstrip("/")]     # one account key replaces workspace keys for the same platform
+        cfg["logins"].append({"api": a.api.rstrip("/"), "key": a.key, "workspace": "*", "email": me["email"]})
+        if getattr(a, "claimed_workspace", None):
+            cfg["default"] = a.claimed_workspace
+        elif not cfg.get("default") or not any(w["slug"] == cfg["default"] for w in who["workspaces"]):
+            cfg["default"] = who["workspaces"][0]["slug"] if who["workspaces"] else None
+        where = save_cfg(cfg)
+        names = ", ".join(f"{w['slug']} ({w['role']})" for w in who["workspaces"])
+        print(f"logged in as {me['email']}. This key is you: it works in {len(who['workspaces'])} workspace{'' if len(who['workspaces']) == 1 else 's'}: {names}. Default: {cfg['default']}."
+              + (" Name a tool as <workspace>/<tool> or use --ws to aim elsewhere." if len(who["workspaces"]) > 1 else ""))
+        if where != _config_candidates()[0] and not os.environ.get("BH_CONFIG"):
+            print(f"(login kept at {where} because ~/.config is not writable on this machine)")
+        return
+    where = save_login({"api": a.api.rstrip("/"), "key": a.key, "workspace": me["workspace"], "email": me["email"], "domain": me["domain"]})
+    print(f"logged in as {me['email']} ({me['role']}) in workspace {me['workspace']}; tools live at *.{me['domain']}")
+    cfg = read_config()
+    if len(cfg["logins"]) > 1:
+        print(f"you are logged in to {len(cfg['logins'])} workspaces ({', '.join(l.get('workspace') or '?' for l in cfg['logins'])}); the default is {cfg['default']}. "
+              f"Aim a command elsewhere with bh --ws <workspace> ..., or name a tool as <workspace>/<tool>.")
+    if where != _config_candidates()[0] and not os.environ.get("BH_CONFIG"):
+        print(f"(login kept at {where} because ~/.config is not writable on this machine)")
+
+
+def cmd_logout(a):
+    cfg = read_config()
+    target = a.workspace
+    removed = []
+    for login in cfg["logins"]:
+        matches = target is None or login.get("workspace") == target
+        if not matches and login.get("workspace") == "*":
+            matches = target == cfg.get("default")
+            if not matches:
+                request = urllib.request.Request(login["api"] + "/api/me", headers={"Authorization": "Bearer " + login["key"]})
+                try:
+                    with urllib.request.urlopen(request, timeout=30) as response:
+                        matches = target in {w["slug"] for w in json.loads(response.read()).get("workspaces", [])}
+                except (urllib.error.URLError, ValueError, TimeoutError):
+                    pass
+        if matches:
+            removed.append(login)
+    if not removed:
+        die("no matching connection. Run bh logout without a workspace to disconnect all accounts on this machine.")
+    cfg["logins"] = [login for login in cfg["logins"] if login not in removed]
+    if not cfg["logins"]:
+        cfg["default"] = None
+    elif cfg.get("default") == target or any(login.get("workspace") == "*" for login in removed):
+        cfg["default"] = next((login["workspace"] for login in cfg["logins"] if login.get("workspace") != "*"), None)
+    save_cfg(cfg)
+    print("Disconnected on this machine." + (" Account connections cover all of that account’s workspaces, so those are disconnected together." if any(login.get("workspace") == "*" for login in removed) else ""))
+
+
+def cmd_claim(a):
+    """Trade a one-time code from the welcome page for the key it stands for, and log in."""
+    api = (a.api or "https://api.boathousecloud.com").rstrip("/")
+    body = json.dumps({"code": a.code.strip()}).encode()
+    req = urllib.request.Request(api + "/api/claim", data=body, headers={"Content-Type": "application/json", "User-Agent": "bh/0.3"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            j = json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        payload = e.read().decode(errors="replace")
+        try:
+            detail = json.loads(payload).get("detail", payload)
+        except ValueError:
+            detail = payload
+        die(f"{detail}  (HTTP {e.code})")
+    except (urllib.error.URLError, TimeoutError) as e:
+        die(f"Could not connect to Boat House: {getattr(e, 'reason', e)}. Check the connection and retry.")
+    a.api, a.key = j["api"], j["key"]
+    a.claimed_workspace = j.get("workspace")
+    ACTIVE["ws"] = a.claimed_workspace
+    cmd_login(a)
+
+
+def cmd_export(a):
+    """One archive per tool, saved next to you: the code, the database as SQL, the files under /data."""
+    import shutil
+    if a.tool and not a.all:
+        slugs = [a.tool]
+    else:
+        slugs = [t["slug"] for t in call("GET", "/api/tools")]
+        if not slugs:
+            die("no tools in this workspace")
+    dest = Path(a.dir or ".").resolve()
+    dest.mkdir(parents=True, exist_ok=True)
+    cfg = load_cfg()
+    stamp = time.strftime("%Y%m%d")
+    for slug in slugs:
+        out = dest / f"{slug}-{stamp}.tar.gz"
+        req = urllib.request.Request(cfg["api"] + f"/api/tools/{slug}/export", headers=auth_headers(cfg))
+        try:
+            with urllib.request.urlopen(req, timeout=900) as r, open(out, "wb") as f:
+                shutil.copyfileobj(r, f)
+        except urllib.error.HTTPError as e:
+            payload = e.read().decode(errors="replace")
+            try:
+                detail = json.loads(payload).get("detail", payload)
+            except ValueError:
+                detail = payload
+            die((f"{slug}: " if a.all else "") + f"{detail}  (HTTP {e.code})")
+        with tarfile.open(out, "r:gz") as tf:
+            names = tf.getnames()
+        parts = [p for p in ("source", "database.sql", "data", "README.txt") if any(n == p or n.startswith(p + "/") for n in names)]
+        print(f"{slug:<16} {out}  ({out.stat().st_size/1024:.0f} KB: {', '.join(parts)})")
+    print("Secrets are not included; the README inside says how to run the tool elsewhere.")
+
+
+def cmd_restore(a):
+    pts = call("GET", f"/api/tools/{a.tool}/restore-points")
+    if not pts:
+        die(f"no nightly backup holds {a.tool} yet; the first one runs at 03:35 UTC")
+    if not a.frm and not a.yes:
+        print(f"{'DATE':<12} {'DATABASE':<10} {'FILES':<8}")
+        for p in pts:
+            kb = lambda n: "%d KB" % max(1, n // 1024)
+            print(f"{p['date']:<12} {kb(p['database_bytes']) if p['database'] else '-':<10} {kb(p['files_bytes']) if p['files'] else '-':<8}")
+    r = call("POST", f"/api/tools/{a.tool}/restore", body={"date": a.frm, "confirm": bool(a.yes)})
+    plan = r["plan"]
+    if not r.get("confirm"):
+        print(f"\nrestore {a.tool} from {plan['date']}: replaces {plan['replaces']}; {plan['keeps']}; {plan['downtime']}.")
+        print(f"Nothing was changed. To do it:  bh restore {a.tool} --from {plan['date']} --yes")
+        return
+    what = " and ".join(w for w, ok in (("database", r["database"]), ("files", r["files"])) if ok) or "nothing"
+    print(f"restored {a.tool} from {plan['date']}: {what} put back; the tool is running again.")
+    print(f"what it held before is kept at {r['snapshot']} on the box.")
+
+
+def cmd_mail(a):
+    if a.action == "status":
+        r = call("GET", "/api/mail")
+        if r["configured"] and not r.get("from"):
+            print("email: on. bh share and bh users add email people their link and steps; you also get the link to pass on.")
+        elif r["configured"]:
+            print(f"email: on, sent as {r['from']} via {'Resend (HTTPS)' if r.get('provider') == 'resend' else r['host']}")
+        else:
+            print("email: not set up. Shares print a link to send by hand. Turn it on over HTTPS: BH_MAIL_KEY=... bh mail set --resend --from you@yourdomain, "
+                  "then bh mail domain. (SMTP also works where the host allows it: BH_SMTP_PASSWORD=... bh mail set --host smtp.gmail.com --user you@yourdomain)")
+    elif a.action == "set":
+        if a.resend:
+            key = os.environ.get("BH_MAIL_KEY") or ""
+            if not key:
+                die("put the Resend API key in the environment first: BH_MAIL_KEY=... bh mail set --resend --from you@yourdomain   (never on the command line)")
+            if not a.sender or "@" not in a.sender:
+                die("usage: bh mail set --resend --from you@yourdomain")
+            call("PUT", "/api/mail", body={"provider": "resend", "api_key": key, "from": a.sender})
+            print(f"email on: sent as {a.sender} over HTTPS through Resend. Next: bh mail domain (verifies {a.sender.split('@')[-1]} as a sender), then bh mail test")
+            return
+        pw = os.environ.get("BH_SMTP_PASSWORD") or ""
+        if not pw:
+            die("put the mailbox app password in the environment first: BH_SMTP_PASSWORD=... bh mail set --host ... --user ...   (never on the command line)")
+        if not a.host or not a.user:
+            die("usage: bh mail set --host smtp.gmail.com [--port 587] --user you@yourdomain [--from you@yourdomain]")
+        r = call("PUT", "/api/mail", body={"host": a.host, "port": a.port or 587, "user": a.user, "password": pw, "from": a.sender or a.user})
+        print(f"email on: sent as {a.sender or a.user} via {r['host']}. Try it: bh mail test")
+    elif a.action == "domain":
+        r = call("POST", "/api/mail/domain")
+        for rec in r["records"]:
+            print(f"  {rec['type']:<5} {rec['name']:<40} {rec['content'][:60]}")
+        status = r["status"]
+        waited = 0
+        while status != "verified" and waited < 90:
+            time.sleep(10); waited += 10
+            status = call("GET", "/api/mail/domain")["status"]
+        if status == "verified":
+            print(f"{r['domain']} is a verified sender. Try it: bh mail test")
+        else:
+            print(f"{r['domain']}: records written, Resend still checking ({status}). DNS can take a few minutes; run bh mail domain again.")
+    elif a.action == "test":
+        r = call("POST", "/api/mail/test")
+        print(f"sent a test email to {r['sent_to']}")
+
+
+def cmd_whoami(a):
+    cfg = read_config() if not os.environ.get("BH_KEY") else {"logins": []}
+    acct = next((l for l in cfg["logins"] if l.get("workspace") == "*"), None)
+    if acct and not ACTIVE["ws"]:
+        who = call("GET", "/api/me")
+        print(f"{who['email']}; this key works in {len(who['workspaces'])} workspace{'' if len(who['workspaces']) == 1 else 's'}:")
+        for w in who["workspaces"]:
+            print(f"  {w['slug']:<20} {w['role']:<7} tools at *.{w['domain']}" + ("   [default]" if w["slug"] == cfg.get("default") else ""))
+        return
+    if len(cfg["logins"]) > 1 and not ACTIVE["ws"]:
+        for l in cfg["logins"]:
+            ACTIVE["ws"] = l["workspace"]
+            me = call("GET", "/api/whoami")
+            print(f"{me['workspace']:<20} {me['email']} ({me['role']}), tools at *.{me['domain']}" + ("   [default]" if l["workspace"] == cfg["default"] else ""))
+        ACTIVE["ws"] = None
+        return
+    out(call("GET", "/api/whoami"))
+
+
+def platform_host():
+    """boathousecloud.com from https://api.boathousecloud.com in the config, else the public platform."""
+    try:
+        host = urllib.parse.urlparse(load_cfg()["api"]).netloc
+        return host[4:] if host.startswith("api.") else host
+    except SystemExit:
+        return "boathousecloud.com"
+
+
+def fetch_platform(path):
+    req = urllib.request.Request(f"https://{platform_host()}{path}", headers={"User-Agent": "bh/0.3"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return r.read()
+
+
+def cmd_update(a):
+    me = Path(sys.argv[0]).resolve()
+    body = fetch_platform("/bh")
+    if not body.startswith(b"#!/usr/bin/env python3"):
+        die("the platform did not return the bh command")
+    tmp = me.with_suffix(".tmp")
+    tmp.write_bytes(("#!" + sys.executable + "\n").encode() + body.split(b"\n", 1)[1])
+    tmp.chmod(0o755)
+    tmp.replace(me)
+    print(f"updated {me}")
+
+
+# The everyday bh commands: reversible, spend nothing. Claude Code's auto mode sends anything that looks like "granting
+# permissions" or "production deploys" to its classifier, which refuses; an explicit allow rule for a narrow command resolves
+# first and never reaches it. Buying, paying, deleting a tool and restoring data are left out on purpose, so a person is asked.
+TRUSTED = ["whoami", "ls", "status", "logs", "releases", "rollback", "restart", "deploy", "pull", "share", "unshare", "request",
+           "requests", "allow", "access", "export", "secrets", "users", "keys", "audit", "prices", "skill", "update", "claim", "login", "trust",
+           "domain ls", "domain check", "domain point", "domain attach", "domain dns", "domain primary", "domain repoint", "domain detach", "domain free",
+           "billing status", "billing meter"]
+
+
+ASK = ["domain buy", "billing topup", "billing card", "billing autorefill", "rm", "restore"]   # a person's own yes, always
+ENV_MARK = "Boat House: "
+ENV_NOTES = [ENV_MARK + "boathousecloud.com, api.boathousecloud.com and *.boathousecloud.com are the user's own hosting service, driven by the bh command.",
+             ENV_MARK + "bh share and bh unshare give or take back viewer/editor/admin access to one of the user's own hosted tools; reversible, no money, routine. "
+                        "bh deploy puts the user's own small tool online in their own workspace. bh domain buy and bh billing topup spend money and must be confirmed by the user."]
+
+
+def _progs() -> tuple:
+    return ("bh", "~/.local/bin/bh", str(Path.home() / ".local" / "bin" / "bh"))
+
+
+def trust_rules() -> list:
+    return [f"Bash({prog} {sub} *)" for sub in TRUSTED for prog in _progs()]
+
+
+def ask_rules() -> list:
+    return [f"Bash({prog} {sub} *)" for sub in ASK for prog in _progs()]
+
+
+def _write_settings(path: Path, cfg: dict):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(cfg, indent=2) + "\n")
+    tmp.replace(path)
+
+
+def cmd_trust(a):
+    """Tell Claude Code it may run bh's everyday commands without asking. Written as narrow allow rules in ~/.claude/settings.json."""
+    path = Path.home() / ".claude" / "settings.json"
+    try:
+        cfg = json.loads(path.read_text()) if path.exists() and path.read_text().strip() else {}
+    except json.JSONDecodeError as e:
+        die(f"{path} is not valid JSON ({e}); fix it by hand, then run bh trust on again")
+    perms = cfg.setdefault("permissions", {})
+    allow = perms.setdefault("allow", [])
+    ask = perms.setdefault("ask", [])
+    auto = cfg.setdefault("autoMode", {})
+    env = auto.setdefault("environment", [])
+    mine, asks = set(trust_rules()), set(ask_rules())
+    have = [r for r in allow if r in mine]
+    if a.action == "status":
+        if len(have) == len(mine):
+            print("on: Claude Code runs bh's everyday commands without asking (deploy, share, pull, logs, rollback, export and the rest).")
+        elif have:
+            print(f"partly on: Claude Code runs {len(have)} of bh's {len(mine)} everyday commands without asking. Cover them all: bh trust on")
+        else:
+            print("off: Claude Code asks before every bh command. Turn it on: bh trust on")
+        print("It always asks a person first before bh domain buy, bh billing topup/card/autorefill, bh rm and bh restore.")
+        if auto.get("classifyAllShell"):
+            print("warning: autoMode.classifyAllShell is on in your settings, which makes Claude Code ignore every shell allow rule in auto mode")
+        return
+    if a.action == "off":
+        perms["allow"] = [r for r in allow if r not in mine]
+        perms["ask"] = [r for r in ask if r not in asks]
+        auto["environment"] = [e for e in env if not (isinstance(e, str) and e.startswith(ENV_MARK))]
+        if not auto["environment"]:
+            del auto["environment"]
+        if not auto:
+            del cfg["autoMode"]
+        _write_settings(path, cfg)
+        print(f"removed the bh rules from {path}. Claude Code will ask before each bh command again.")
+        return
+    perms["allow"] = allow + [r for r in trust_rules() if r not in allow]
+    perms["ask"] = ask + [r for r in ask_rules() if r not in ask]
+    if not env:
+        env.append("$defaults")             # keeps Claude Code's own list; ours is added to it, never replaces it
+    auto["environment"] = env + [n for n in ENV_NOTES if n not in env]
+    _write_settings(path, cfg)
+    if not getattr(a, "quiet", False):
+        print("Claude Code may now run bh's everyday commands without asking (deploy, share, pull, logs, secrets, domain point ...), in every permission mode including auto.")
+        print("Buying a domain, paying, deleting a tool and restoring data now ask you with a yes/no. Undo any time: bh trust off. Restart Claude Code if a running session still asks.")
+        if auto.get("classifyAllShell"):
+            print("warning: autoMode.classifyAllShell is on in your settings; turn it off or these rules do nothing in auto mode")
+
+
+def cmd_skill(a):
+    body = fetch_platform("/skill.md")
+    for agent_dir in (".claude", ".agents"):
+        dest = Path.home() / agent_dir / "skills" / "boathouse" / "SKILL.md"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(body)
+        print(f"guide installed at {dest}")
+    print("Read the guide in this conversation to use it immediately; no restart needed.")
+
+
+def cmd_deploy(a):
+    t0 = time.time()
+    meta0 = Path(a.path or ".").resolve() / "boathouse.json"
+    if meta0.exists() and not ACTIVE["ws"]:
+        try:
+            w0 = json.loads(meta0.read_text()).get("workspace")
+            ACTIVE["ws"] = w0 if w0 and w0 != "*" else None
+        except ValueError:
+            pass
+    root = Path(a.path or ".").resolve()
+    slug = a.slug or guess_slug(root)
+    meta = root / "boathouse.json"
+    m = json.loads(meta.read_text()) if meta.exists() else {}
+    name = a.name or m.get("name")
+    base = None if a.force else m.get("base")
+    chk = call("GET", f"/api/billing/deploy-check?tool={urllib.parse.quote(slug)}")     # before packing or uploading anything
+    if not chk.get("ok", True):
+        die(chk["message"] + f"  (HTTP {chk.get('code') or 402})")
+    blob = pack(root)
+    print(f"deploying {slug} ({len(blob) // 1024} KB" + (f", based on #{base}" if base else "") + ") …", flush=True)
+    r = call("POST", f"/api/tools/{slug}/deploys", body={"note": a.note, "name": name, "base": base}, files={"context": (f"{slug}.tar.gz", blob)})
+    t = call("GET", f"/api/tools/{slug}")
+    who = "anyone on the internet (public)" if t.get("public") else ("workspace members" if t["default_access"] == "members" else "listed people only")
+    print(f"live: {r['url']}  (release #{r['release']})")
+    others = max(0, len(t["grants"]) - 1)   # the deployer holds a grant too; count the other people
+    print(f"visible to: {who}" + (f", shared with {others} more" if others else "") + f"   ({time.time() - t0:.0f}s)")
+    m.update({"slug": slug, "name": name or m.get("name") or slug, "base": r["release"]})
+    meta.write_text(json.dumps(m, indent=2) + "\n")
+
+
+def cmd_pull(a):
+    dest = Path(a.dir or getattr(a, "dir2", None) or a.tool).resolve()
+    q = f"?release={a.release}" if a.release else ""
+    cfg = load_cfg()
+    req = urllib.request.Request(cfg["api"] + f"/api/tools/{a.tool}/source{q}", headers=auth_headers(cfg))
+    try:
+        with urllib.request.urlopen(req, timeout=120) as r:
+            blob, seq = r.read(), r.headers.get("X-Boathouse-Release")
+    except urllib.error.HTTPError as e:
+        payload = e.read().decode(errors="replace")
+        try:
+            detail = json.loads(payload).get("detail", payload)
+        except ValueError:
+            detail = payload
+        die(f"{detail}  (HTTP {e.code})")
+    if dest.exists() and any(dest.iterdir()) and not a.force:
+        die(f"{dest} is not empty; pick another folder or add --force to overwrite files")
+    dest.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz") as tf:
+        for m in tf.getmembers():
+            if m.name.startswith(("/", "..")) or "/../" in m.name:
+                die(f"refusing suspicious path in archive: {m.name}")
+        tf.extractall(dest)
+    meta = dest / "boathouse.json"
+    m = json.loads(meta.read_text()) if meta.exists() else {"slug": a.tool, "name": a.tool}
+    m["base"] = int(seq) if seq else m.get("base")
+    m["workspace"] = workspace_name(cfg) or m.get("workspace")      # so a later `bh deploy` in this folder goes to the right workspace
+    meta.write_text(json.dumps(m, indent=2) + "\n")
+    print(f"pulled {a.tool} release #{seq} into {dest}. Edit, then `bh deploy` there.")
+
+
+def cmd_ls(a, guest=False):
+    cfg = read_config() if not os.environ.get("BH_KEY") else {"logins": []}
+    acct = next((l for l in cfg["logins"] if l.get("workspace") == "*"), None)
+    if acct and not ACTIVE["ws"]:
+        who = call("GET", "/api/me")
+        if len(who["workspaces"]) > 1:
+            for w in who["workspaces"]:
+                ACTIVE["ws"] = w["slug"]
+                guest = w.get("role") == "guest"
+                print(f"\nworkspace {w['slug']}" + ("   (default)" if w["slug"] == cfg.get("default") else "   (name tools as " + w["slug"] + "/<tool>)")
+                      + ("   (you are a guest: only what is shared with you shows)" if guest else ""))
+                cmd_ls(a, guest=guest)
+            ACTIVE["ws"] = None
+            return
+    if len(cfg["logins"]) > 1 and not ACTIVE["ws"]:
+        for l in cfg["logins"]:
+            ACTIVE["ws"] = l["workspace"]
+            print(f"\nworkspace {l['workspace']}" + ("   (default)" if l["workspace"] == cfg["default"] else "   (name tools as " + l["workspace"] + "/<tool>)"))
+            cmd_ls(a)
+        ACTIVE["ws"] = None
+        return
+    rows = call("GET", "/api/tools")
+    if not rows:
+        if guest:
+            print("nothing is shared with you here yet.")
+            return
+        print("no tools yet. Run `bh deploy` in a folder with a Dockerfile or an index.html.")
+        chk = call("GET", "/api/billing/deploy-check")
+        if not chk.get("ok", True) and not chk.get("guest"):
+            print("first, money: " + chk["message"])
+        return
+    print(f"{'TOOL':<16}{'STATE':<10}{'REL':<6}{'DEPLOYED':<12}{'ACCESS':<10}{'YOU':<8}URL")
+    for t in rows:
+        rel = t["release"] or {}
+        print(f"{t['slug']:<16}{t['status']['state']:<10}{('#' + str(rel.get('seq'))) if rel else '-':<6}{ago(rel.get('created')):<12}{('public' if t.get('public') else t['default_access']):<10}{t.get('my_tier') or '-':<8}{t['url']}")
+
+
+def cmd_status(a):
+    out(call("GET", f"/api/tools/{a.tool}"))
+
+
+def cmd_logs(a):
+    since = None
+    if a.since:
+        m = re.match(r"^(\d+)([smhd])$", a.since)
+        if not m:
+            die("--since looks like 30m, 2h, 1d")
+        since = int(time.time() - int(m[1]) * {"s": 1, "m": 60, "h": 3600, "d": 86400}[m[2]])
+    q = f"?tail={a.tail}" + (f"&since={since}" if since else "")
+    text = call("GET", f"/api/tools/{a.tool}/logs{q}", raw=True)
+    if not text.strip():
+        print(f"no log lines from {a.tool}" + (f" in the last {a.since}" if a.since else " yet") + " (the tool has not written anything to its output)")
+    else:
+        sys.stdout.write(text)
+
+
+def cmd_releases(a):
+    for r in call("GET", f"/api/tools/{a.tool}/releases"):
+        print(f"#{r['seq']:<4}{r['status']:<12}{ago(r['created']):<12}{r['created_by']:<34}  {r.get('note') or ''}")
+        if r["status"] == "failed" and r.get("log"):
+            ls = [l.strip() for l in r["log"].strip().splitlines() if l.strip() and l.strip() not in ("^", "~")]
+            said = next((l for l in reversed(ls) if any(w in l.lower() for w in ("error", "exception", "failed", "cannot", "not found", "refused", "denied"))), ls[-1] if ls else "")
+            print("      " + said[:160])
+    print("put one back: bh rollback <tool> <n>   (only live or superseded releases can be)")
+
+
+def cmd_rollback(a):
+    to = a.to or a.release
+    r = call("POST", f"/api/tools/{a.tool}/rollback", body={"to": to} if to else {})
+    print(f"rolled back: {r['url']} now on image {r['image']} (release #{r['release']})")
+
+
+def cmd_restart(a):
+    out(call("POST", f"/api/tools/{a.tool}/restart", body={}))
+
+
+def _invite_note(r):
+    if r.get("emailed"):
+        print(f"Emailed {r['email']} the secure sign-in instructions.")
+    if r.get("invite_url"):
+        print(f"Invitation page for {r['email']}; they can request a secure confirmation email here:")
+        print(f"  {r['invite_url']}")
+
+
+def cmd_share(a):
+    r = call("POST", f"/api/tools/{a.tool}/grants", body={"email": a.email, "tier": a.tier, "labels": a.label or []})
+    what = {"viewer": "look", "editor": "change the data", "admin": "change anything, including the software"}[r["tier"]]
+    print(f"{r['email']} can open {r['url']} as {r['tier']} ({what})" + (f", labels: {r['labels']}" if r["labels"] else ""))
+    if r.get("emailed"):
+        if r.get("invite_url"):
+            print(f"Emailed {r['email']} a secure invitation. If it does not arrive, share this page so they can request another email:")
+            print(f"  {r['invite_url']}")
+        else:
+            print(f"emailed {r['email']} the address and what to do. Nothing else to send.")
+    else:
+        _invite_note(r)
+        if not r.get("invite_url") and r.get("account_exists"):
+            print(f"{r['email']} already has a Boat House account: they sign in with their own password and it is there.")
+        if not r.get("mail_configured"):
+            print("(email is not set up on this Boat House, so send them the link yourself; the host owner turns it on with bh mail set)")
+    if r["tier"] == "admin" and not r.get("invite_url"):
+        print(f"If their agent is already connected to Boat House, it can work on it now: bh pull {r.get('workspace') or '<workspace>'}/{a.tool}")
+
+
+def cmd_request(a):
+    """Ask to be let into someone else's tool. Their owners get an email with one Allow button; nobody there runs a command."""
+    if "/" not in a.target:
+        die("say which tool, workspace and name: bh request shared/db --tier admin")
+    ws, tool = a.target.split("/", 1)
+    r = call("POST", "/api/access-requests", body={"workspace": ws, "tool": tool, "tier": a.tier, "message": a.why or ""})
+    if r.get("already"):
+        print(f"you already have {r['tier']} on {ws}/{tool}; nothing to ask for. Work on it: bh pull {ws}/{tool}")
+        return
+    n = r.get("asked_count") or 0
+    who = "its owner" if n == 1 else f"its {n} owners and admins" if n else "its owners"
+    if r.get("emailed"):
+        print(f"asked for {a.tier} on {ws}/{tool}. {who} got an email with one Allow button (good for {r['expires_days']} days).")
+    else:
+        print(f"asked for {a.tier} on {ws}/{tool}; email is not set up on this Boat House, so tell {who} to run: bh requests, then bh allow <id>")
+    print(f"you get an email the moment it is allowed. Then: bh pull {ws}/{tool}")
+
+
+def cmd_requests(a):
+    r = call("GET", "/api/access-requests")["requests"]
+    if not r:
+        print("nobody is waiting to be let in.")
+        return
+    for q in r:
+        print(f"  {q['id']}   {q['email']} asks for {q['tier']} on {q['tool']}" + (f'   "{q["message"]}"' if q.get("message") else ""))
+    print("allow one: bh allow <id>")
+
+
+def cmd_allow(a):
+    r = call("POST", f"/api/access-requests/{a.id}/allow")
+    print(f"{r['email']} is now {r['tier']} on {r['tool']}" + (", and got an email saying what to do next." if r.get("emailed") else "."))
+
+
+def cmd_unshare(a):
+    out(call("DELETE", f"/api/tools/{a.tool}/grants/{urllib.parse.quote(a.email)}"))
+
+
+def cmd_access(a):
+    if not a.mode:
+        t = call("GET", f"/api/tools/{a.tool}")
+        if t.get("public"):
+            print(f"{a.tool}: anyone on the internet can read it (public); changing it still needs sign-in.")
+        elif t["default_access"] == "members":
+            print(f"{a.tool}: everyone in the workspace, as {t['default_tier']}; owners are admin.")
+        else:
+            print(f"{a.tool}: only the people listed below; owners are admin.")
+        for g in t.get("grants") or []:
+            print(f"  {g['email']:<40} {g.get('tier') or g.get('role')}" + (f"   labels {g['labels']}" if g.get("labels") else ""))
+        print("change it: bh share <tool> <email> --tier editor | bh unshare <tool> <email> | bh access <tool> members|listed|public")
+        return
+    body = {"public": True} if a.mode == "public" else {"default_access": a.mode, "public": False}
+    if a.tier:
+        body["default_tier"] = a.tier
+    t = call("PATCH", f"/api/tools/{a.tool}", body=body)
+    if t.get("public"):
+        print(f"{t['slug']}: public. Anyone on the internet can read it at {t['url']}; changing anything still needs a sign-in")
+    elif t["default_access"] == "members":
+        print(f"{t['slug']}: anyone in the workspace can open it as {t['default_tier']}; people you shared it with keep their own tier")
+    else:
+        print(f"{t['slug']}: only people you shared it with can open it")
+
+
+def cmd_secrets(a):
+    if a.action == "ls":
+        for s in call("GET", f"/api/tools/{a.tool}/secrets"):
+            print(f"{s['name']:<32}{ago(s['updated']):<12}{s['updated_by']}")
+    elif a.action == "set":
+        if not a.name:
+            die("usage: bh secrets set <tool> NAME [value | -]")
+        if a.value in (None, "-"):
+            value = sys.stdin.read().strip() if not sys.stdin.isatty() else __import__("getpass").getpass(f"{a.name}: ")
+        else:
+            value = a.value
+        r = call("PUT", f"/api/tools/{a.tool}/secrets/{a.name}", body={"value": value})
+        print(f"set {a.name}" + (" and restarted the tool" if r["restarted"] else ""))
+    elif a.action == "rm":
+        out(call("DELETE", f"/api/tools/{a.tool}/secrets/{a.name}"))
+
+
+def cmd_users(a):
+    if a.action == "add":
+        if not a.email:
+            die("usage: bh users add <email> [--role member|owner|guest]")
+        r = call("POST", "/api/users", body={"email": a.email, "role": a.role})
+        print(f"{r['email']} is a {r['role']}")
+        _invite_note(r)
+    elif a.action == "invite":
+        if not a.email:
+            die("usage: bh users invite <email>")
+        r = call("POST", f"/api/users/{urllib.parse.quote(a.email)}/invite", body={})
+        if r.get("sign_in_url"):
+            print(f"{r['email']} already has an account. Sign in at {r['sign_in_url']}; use Forgot password there if needed.")
+        else:
+            print(f"Invitation ready for {r['email']}.")
+            _invite_note(r)
+    elif a.action == "rm":
+        out(call("DELETE", f"/api/users/{urllib.parse.quote(a.email)}"))
+    else:
+        for u in call("GET", "/api/users"):
+            pw = "" if u.get("has_password") else "  (no password yet: bh users invite)"
+            print(f"{u['role']:<8}{u['email']:<40}{(u.get('name') or ''):<24}{pw}")
+
+
+def cmd_keys(a):
+    if a.action == "create":
+        r = call("POST", "/api/keys", body={"name": a.name, "for": a.for_email})
+        print(r["key"])
+        print(f"# project key for {r['email']} ({r['name']}). Shown once.", file=sys.stderr)
+    elif a.action == "revoke":
+        out(call("DELETE", f"/api/keys/{a.key_id}"))
+    else:
+        for k in call("GET", "/api/keys"):
+            print(f"{k['id']:<22}{k['email']:<40}{k['name']:<20}last used {ago(k['last_used'])}")
+
+
+def _money(cents):
+    return "-" if cents is None else f"${cents/100:,.2f}"
+
+
+def cmd_domain(a):
+    if a.action == "ls":
+        r = call("GET", "/api/domains")
+        print(f"free address   {r['free']}")
+        print(f"primary        {r['primary']}")
+        for d in r["domains"]:
+            flags = ("primary " if d["primary"] else "") + ("dns-ok" if d["dns_ok"] else "dns-pending")
+            print(f"{d['domain']:<32}{d['registrar']:<10}{d['status']:<8}{flags}")
+    elif a.action == "check":
+        q = call("POST", "/api/domains/check", body={"domain": a.name})
+        if not q["available"]:
+            print(f"{q['domain']}: taken")
+        else:
+            total, margin = q.get("total_cents", q["price_cents"]), q.get("margin_cents", 0)
+            promo = f" (first year; renews at {_money(q.get('renewal_total_cents', q['regular_cents']))})" if q["first_year_promo"] else ""
+            print(f"{q['domain']}: available, {_money(total)}/year ({_money(q['price_cents'])} registrar + {_money(margin)} Boathouse){promo}"
+                  + ("  PREMIUM, not buyable by API" if q["premium"] else ""))
+    elif a.action == "buy":
+        q = call("POST", "/api/domains", body={"domain": a.name, "confirm": False})
+        sb = " [SANDBOX: fake money]" if q.get("sandbox") else ""
+        print(f"{q['domain']}: {q['cost']} now (registrar {_money(q['registrar_cents'])} + Boathouse {_money(q['margin_cents'])}), renews at {_money(q['renewal_cents'])}/year; workspace balance {_money(q['balance_cents'])}{sb}")
+        if not q.get("would_succeed", True):
+            die(q.get("message") or "the registrar says this would fail")
+        if not a.yes:
+            print(f"dry run only. To confirm this exact price: --yes --quote-id {q['quote_id']} --max-cost-cents {q['cost_cents']}")
+            return
+        maximum = a.max_cost_cents if a.max_cost_cents is not None else q["cost_cents"]
+        if q["cost_cents"] > maximum:
+            die(f"This domain costs {_money(q['cost_cents'])}, above the approved limit of {_money(maximum)}. Nothing was bought.")
+        r = call("POST", "/api/domains", body={"domain": a.name, "confirm": True,
+                 "quote_id": a.quote_id or q["quote_id"], "max_cost_cents": maximum}, timeout=180)
+        print(f"bought {r['bought']} for {_money(r['cost_cents'])} (order {r['order_id']}); balance now {_money(r['balance_cents'])}")
+        for rec in r["dns"]:
+            print(f"  dns {rec['name']:<34}A  {rec['content']}")
+        print(f"home {r['urls']['home']}   sign-in {r['urls']['auth']}   tools {r['urls']['tools']}")
+        print(r["note"])
+        if a.to:
+            call("PATCH", f"/api/domains/{a.name}", body={"tool": a.to})
+            print(f"{a.name} and www.{a.name} open the tool {a.to} (certificates are issued on the first visit; DNS can take a few minutes to spread)")
+    elif a.action == "attach":
+        r = call("POST", f"/api/domains/{a.name}/attach", body={})
+        if a.to:
+            call("PATCH", f"/api/domains/{a.name}", body={"tool": a.to})
+            print(f"{a.name} and www.{a.name} will open the tool {a.to} once the DNS below points here")
+        print(f"attached {r['attached']} ({r['registrar']}" + (", now primary)" if r["primary"] else ")"))
+        for rec in r.get("dns", []):
+            print(f"  dns {rec['name']:<34}A  {rec['content']}")
+        if r.get("note"):
+            print(r["note"])
+        for rec in r.get("make_these_records", []):
+            print(f"  make this record at your DNS host: {rec['name']:<4}{rec['type']}  {rec['content']}")
+    elif a.action == "dns":
+        r = call("GET", f"/api/domains/{a.name}/dns")
+        for rec in r["records"]:
+            print(f"{rec.get('type',''):<7}{rec.get('name',''):<40}{rec.get('content','')}")
+    elif a.action == "repoint":
+        r = call("POST", f"/api/domains/{a.name}/dns", body={})
+        for rec in r["records"]:
+            print(f"  dns {rec['name']:<34}A  {rec['content']}")
+    elif a.action == "point":
+        if not a.to:
+            die("usage: bh domain point <domain> --to <tool>   (or --to '' to clear)")
+        r = call("PATCH", f"/api/domains/{a.name}", body={"tool": a.to})
+        print(f"{a.name} and www.{a.name} now open the tool {a.to}" if a.to else f"{a.name} shows the tool list again")
+    elif a.action == "primary":
+        r = call("PATCH", f"/api/domains/{a.name}", body={"primary": True})
+        print(f"primary is now {r['primary']}")
+    elif a.action == "detach":
+        out(call("DELETE", f"/api/domains/{a.name}"))
+    elif a.action == "free":
+        r = call("POST", "/api/domains/free-address", body={})
+        print(f"{r['address']} and *.{r['address']} now point at your Boathouse")
+    elif a.action == "platform":
+        r = call("POST", "/api/platform/dns", body={})
+        for rec in r["records"]:
+            print(f"  dns {rec['name']:<34}A  {rec['content']}")
+
+
+def _dollars(x):
+    try:
+        cents = Decimal(str(x).lstrip("$")) * 100
+        if not cents.is_finite() or cents != cents.to_integral_value():
+            raise ValueError()
+        return int(cents)
+    except (InvalidOperation, ValueError):
+        die("give an amount in dollars with at most two decimal places, like 20 or 12.50")
+
+
+def cmd_referral(a):
+    if a.action == "payouts":
+        rows = call("GET", "/api/referral/payouts")["payouts"]
+        if not rows:
+            print("nothing owed to anyone right now."); return
+        for r in rows:
+            print(f"  {r['email']:<36} ${r['unpaid_cents']/100:>8.2f}   from {r['workspaces']} workspace(s)")
+        print("after paying someone: bh referral paid <email> --ref 'PayPal 2026-10-01'")
+        return
+    if a.action == "paid":
+        if not a.email or not a.ref:
+            die("usage: bh referral paid <email> --ref 'how and when it was paid'")
+        r = call("POST", f"/api/referral/payouts/{a.email}", body={"ref": a.ref})
+        print(f"marked ${r['paid_cents']/100:.2f} as paid to {r['email']} ({r['ref']})"); return
+    r = call("GET", "/api/referral")
+    print(f"your code: {r['code']}    link: {r['link']}")
+    print(f"the deal: {r['terms']}")
+    if r["referred"]:
+        for x in r["referred"]:
+            print(f"  {x['name']:<28} since {time.strftime('%Y-%m-%d', time.gmtime(x['since']))}   earned you ${x['earned_cents']/100:.2f}   unpaid ${x['unpaid_cents']/100:.2f}")
+        print(f"total earned ${r['earned_cents']/100:.2f}, not yet paid out ${r['unpaid_cents']/100:.2f} (paid monthly, in cash)")
+    else:
+        print("nobody has signed up with it yet.")
+
+
+def cmd_prices(a):
+    p = call("GET", "/api/prices")
+    for w in p["words"]:
+        print("· " + w)
+
+
+def cmd_billing(a):
+    if a.action == "status":
+        b = call("GET", "/api/billing")
+        state = "PAUSED" if b["paused"] else "active"
+        print(f"workspace {b['workspace']}: balance {_money(b['balance_cents'])} ({state}); {b['running_tools']} running tool(s) burn {_money(b['burn_cents_per_day'])}/day"
+              + (f", about {b['days_left']} days left" if b["days_left"] is not None else ""))
+        print("card on file: " + ("yes" if b["card_on_file"] else "no (bh billing card)") + (f"; auto-refill {_money(b['autorefill_cents'])}" + (f" up to {_money(b['autorefill_cap_cents'])}/month" if b["autorefill_cap_cents"] else "") if b["autorefill_cents"] else ""))
+        if b["ledger"]:
+            print(f"{'WHEN':<18}{'KIND':<8}{'AMOUNT':>10}{'BALANCE':>10}  MEMO")
+            for l in b["ledger"]:
+                print(f"{time.strftime('%Y-%m-%d %H:%M', time.localtime(l['ts'])):<18}{l['kind']:<8}{_money(l['amount_cents']):>10}{_money(l['balance_after']):>10}  {l['memo'] or ''}")
+    elif a.action == "card":
+        r = call("POST", "/api/billing/card", body={})
+        print("Open this once and enter the card. That is the only billing step that needs a browser.")
+        print(f"  {r['url']}")
+    elif a.action == "topup":
+        cents = _dollars(a.arg1)
+        # Persist the quoted operation before submission: a lost HTTP response or
+        # a new CLI process must retry the same payment, never invent another.
+        cfg = load_cfg()
+        marker = hashlib.sha256(f"{cfg['api']}|{workspace_name(cfg)}|{cents}".encode()).hexdigest()
+        pending_path = CONFIG.parent / f"payment-{marker}.json"
+        pending = json.loads(pending_path.read_text()) if pending_path.exists() else {}
+        q = call("POST", "/api/billing/topup", body={"cents": cents, "operation_id": pending.get("operation_id")})
+        if q["payment_status"] == "failed" or (q["payment_status"] == "quoted" and q["expires"] < time.time()):
+            q = call("POST", "/api/billing/topup", body={"cents": cents})
+        pending_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = pending_path.with_suffix(".tmp-" + uuid.uuid4().hex)
+        temporary.write_text(json.dumps({"operation_id": q["operation_id"]}))
+        temporary.chmod(0o600)
+        temporary.replace(pending_path)
+        print(q["message"] + f" Balance after: {_money(q['balance_after_cents'])}.")
+        if not a.yes:
+            print("dry run only. Re-run with --yes to charge the card."); return
+        r = call("POST", "/api/billing/topup", body={"cents": cents, "confirm": True, "operation_id": q["operation_id"]}, timeout=120)
+        print(f"charged {_money(r['cents'])}; balance now {_money(r['balance_cents'])}" + (" (workspace resumed)" if r.get("resumed") else ""))
+        pending_path.unlink(missing_ok=True)
+    elif a.action == "autorefill":
+        cents = _dollars(a.arg1) if a.arg1 else 0
+        r = call("POST", "/api/billing/autorefill", body={"cents": cents, "cap_cents": _dollars(a.cap) if a.cap else cents})
+        print(r["note"])
+    elif a.action == "grant":
+        if not a.arg1 or not a.arg2:
+            die("usage: bh billing grant <workspace> <dollars> [--memo text]")
+        r = call("POST", "/api/billing/grant", body={"workspace": a.arg1, "cents": _dollars(a.arg2), "memo": a.memo})
+        print(f"{r['workspace']} balance now {_money(r['balance_cents'])}")
+    elif a.action == "stripe-keys":
+        sec = os.environ.get("STRIPE_SECRET_KEY") or __import__("getpass").getpass("stripe secret key: ")
+        wh = os.environ.get("STRIPE_WEBHOOK_SECRET") or __import__("getpass").getpass("stripe webhook signing secret: ")
+        r = call("PUT", "/api/billing/stripe-keys", body={"secret": sec, "webhook_secret": wh})
+        print(f"stripe connected; point the webhook at {r['webhook_url']} (events checkout.session.completed and payment_intent.succeeded)")
+    elif a.action == "meter":
+        r = call("POST", "/api/billing/meter", body={})
+        for l in r["lines"]:
+            print(f"{l['workspace']:<12}{l['tool']:<16}{_money(l['cents']):>8}  {l['gb']} GB")
+        if not r["lines"]:
+            print("nothing to charge (already metered today, or nothing running)")
+
+
+def cmd_registrar(a):
+    if a.action == "status":
+        out(call("GET", "/api/registrar"))
+    elif a.action == "connect":
+        r = call("POST", "/api/registrar/connect", body={"sandbox": a.sandbox})
+        if r.get("state") == "connected":
+            print("connected to the registrar SANDBOX (fake money, real catalog)")
+            return
+        print("Open this link, sign in to (or create) the registrar account, and approve. Nothing to copy.")
+        print(f"  {r['auth_url']}")
+        print(f"valid until {r.get('expires')} (30 minutes). Then: bh registrar wait")
+    elif a.action == "wait":
+        deadline = time.time() + 31 * 60
+        while time.time() < deadline:
+            try:
+                r = call("POST", "/api/registrar/connect/finish", body={})
+            except SystemExit:
+                die("the approval link expired or was denied; run bh registrar connect for a fresh one")
+            if r.get("state") == "connected":
+                print("registrar connected" + (" (sandbox)" if r.get("sandbox") else ""))
+                return
+            time.sleep(20)
+        die("the approval link expired; run bh registrar connect again")
+    elif a.action == "keys":
+        key = os.environ.get("PORKBUN_API_KEY") or __import__("getpass").getpass("api key: ")
+        sec = os.environ.get("PORKBUN_SECRET_KEY") or __import__("getpass").getpass("secret key: ")
+        out(call("PUT", "/api/registrar/keys", body={"apikey": key, "secret": sec}))
+
+
+def cmd_rm(a):
+    if a.purge and not a.yes:
+        die("--purge deletes the database and files forever; add --yes to confirm")
+    r = call("DELETE", f"/api/tools/{a.tool}?purge={'true' if a.purge else 'false'}")
+    print(f"{a.tool} is gone. " + ("Its database and files were removed too." if r.get('data_purged') else
+                                    f"Its database, files, sharing and secrets are kept: deploy a tool named {a.tool} again and they are all back (the version history starts over). bh rm {a.tool} --purge removes them now."))
+
+
+def cmd_audit(a):
+    for r in call("GET", f"/api/audit?limit={a.limit}"):
+        print(f"{time.strftime('%Y-%m-%d %H:%M', time.localtime(r['ts']))}  {r['actor'] or '-':<34}{r['action']:<16}{r['target'] or '':<24}{r['detail'] or ''}")
+
+
+def main():
+    p = argparse.ArgumentParser(prog="bh", description="Boathouse: deploy small software behind one login.")
+    p.add_argument("--ws", help="the workspace to aim this command at, when you are logged in to several")
+    sp = p.add_subparsers(dest="cmd", required=False)
+    s = sp.add_parser("logout"); s.add_argument("workspace", nargs="?"); s.set_defaults(f=cmd_logout)
+    s = sp.add_parser("signup"); s.add_argument("name"); s.add_argument("email"); s.add_argument("--api"); s.add_argument("--code", help="a referral code: half price for 60 days"); s.set_defaults(f=cmd_signup)
+    s = sp.add_parser("login"); s.add_argument("api"); s.add_argument("key"); s.set_defaults(f=cmd_login)
+    s = sp.add_parser("claim"); s.add_argument("code"); s.add_argument("--api"); s.set_defaults(f=cmd_claim)
+    s = sp.add_parser("whoami"); s.set_defaults(f=cmd_whoami)
+    s = sp.add_parser("mail"); s.add_argument("action", choices=["status", "set", "domain", "test"]); s.add_argument("--resend", action="store_true"); s.add_argument("--host"); s.add_argument("--port", type=int); s.add_argument("--user"); s.add_argument("--from", dest="sender"); s.set_defaults(f=cmd_mail)
+    s = sp.add_parser("update"); s.set_defaults(f=cmd_update)
+    s = sp.add_parser("export"); s.add_argument("tool", nargs="?"); s.add_argument("--dir"); s.add_argument("--all", action="store_true"); s.set_defaults(f=cmd_export)
+    s = sp.add_parser("restore"); s.add_argument("tool"); s.add_argument("--from", dest="frm"); s.add_argument("--yes", action="store_true"); s.set_defaults(f=cmd_restore)
+    s = sp.add_parser("skill"); s.set_defaults(f=cmd_skill)
+    s = sp.add_parser("trust"); s.add_argument("action", nargs="?", choices=["on", "off", "status"], default="on"); s.add_argument("--quiet", action="store_true"); s.set_defaults(f=cmd_trust)
+    s = sp.add_parser("deploy"); s.add_argument("path", nargs="?"); s.add_argument("--slug"); s.add_argument("--name"); s.add_argument("--note"); s.add_argument("--force", action="store_true", help="push even if the live release moved on"); s.set_defaults(f=cmd_deploy)
+    s = sp.add_parser("pull"); s.add_argument("tool"); s.add_argument("dir", nargs="?"); s.add_argument("--release", type=int); s.add_argument("--force", action="store_true"); s.add_argument("--dir", dest="dir2", help="same as the folder argument"); s.set_defaults(f=cmd_pull)
+    s = sp.add_parser("ls"); s.set_defaults(f=cmd_ls)
+    s = sp.add_parser("status"); s.add_argument("tool"); s.set_defaults(f=cmd_status)
+    s = sp.add_parser("logs"); s.add_argument("tool"); s.add_argument("--tail", type=int, default=200); s.add_argument("--since"); s.set_defaults(f=cmd_logs)
+    s = sp.add_parser("releases"); s.add_argument("tool"); s.set_defaults(f=cmd_releases)
+    s = sp.add_parser("rollback"); s.add_argument("tool"); s.add_argument("release", nargs="?", type=int, help="release number; default: the one before the live one"); s.add_argument("--to", type=int); s.set_defaults(f=cmd_rollback)
+    s = sp.add_parser("restart"); s.add_argument("tool"); s.set_defaults(f=cmd_restart)
+    s = sp.add_parser("share"); s.add_argument("tool"); s.add_argument("email"); s.add_argument("--tier", default="viewer", choices=["viewer", "editor", "admin"]); s.add_argument("--label", action="append"); s.set_defaults(f=cmd_share)
+    s = sp.add_parser("request"); s.add_argument("target", help="<workspace>/<tool>"); s.add_argument("--tier", default="viewer", choices=["viewer", "editor", "admin"]); s.add_argument("--why", help="one line the owner sees"); s.set_defaults(f=cmd_request)
+    s = sp.add_parser("requests"); s.set_defaults(f=cmd_requests)
+    s = sp.add_parser("allow"); s.add_argument("id"); s.set_defaults(f=cmd_allow)
+    s = sp.add_parser("unshare"); s.add_argument("tool"); s.add_argument("email"); s.set_defaults(f=cmd_unshare)
+    s = sp.add_parser("access"); s.add_argument("tool"); s.add_argument("mode", nargs="?", choices=["members", "listed", "public"], help="leave out to see who can open it"); s.add_argument("--tier", choices=["viewer", "editor", "admin"]); s.set_defaults(f=cmd_access)
+    s = sp.add_parser("secrets"); s.add_argument("action", choices=["ls", "set", "rm"]); s.add_argument("tool"); s.add_argument("name", nargs="?"); s.add_argument("value", nargs="?"); s.set_defaults(f=cmd_secrets)
+    s = sp.add_parser("users"); s.add_argument("action", nargs="?", choices=["ls", "add", "rm", "invite"], default="ls"); s.add_argument("email", nargs="?"); s.add_argument("--role", default="member"); s.set_defaults(f=cmd_users)
+    s = sp.add_parser("domain"); s.add_argument("action", choices=["ls", "check", "buy", "attach", "dns", "repoint", "primary", "point", "detach", "free", "platform"]); s.add_argument("name", nargs="?"); s.add_argument("--yes", action="store_true"); s.add_argument("--quote-id", help="reuse a prior quote when confirming or retrying"); s.add_argument("--max-cost-cents", type=int, help="maximum approved domain price, including Boathouse's margin"); s.add_argument("--to", help="tool that should answer at the domain itself (apex and www)"); s.set_defaults(f=cmd_domain)
+    s = sp.add_parser("prices"); s.set_defaults(f=cmd_prices)
+    s = sp.add_parser("referral"); s.add_argument("action", nargs="?", choices=["show", "payouts", "paid"], default="show"); s.add_argument("email", nargs="?"); s.add_argument("--ref"); s.set_defaults(f=cmd_referral)
+    s = sp.add_parser("billing"); s.add_argument("action", nargs="?", choices=["status", "card", "topup", "autorefill", "grant", "stripe-keys", "meter"], default="status"); s.add_argument("arg1", nargs="?"); s.add_argument("arg2", nargs="?"); s.add_argument("--yes", action="store_true"); s.add_argument("--cap"); s.add_argument("--memo"); s.set_defaults(f=cmd_billing)
+    s = sp.add_parser("registrar"); s.add_argument("action", choices=["status", "connect", "wait", "keys"]); s.add_argument("--sandbox", action="store_true"); s.set_defaults(f=cmd_registrar)
+    s = sp.add_parser("keys"); s.add_argument("action", nargs="?", choices=["ls", "create", "revoke"], default="ls"); s.add_argument("key_id", nargs="?"); s.add_argument("--name", default="cli"); s.add_argument("--for", dest="for_email"); s.set_defaults(f=cmd_keys)
+    s = sp.add_parser("rm"); s.add_argument("tool"); s.add_argument("--purge", action="store_true"); s.add_argument("--yes", action="store_true"); s.set_defaults(f=cmd_rm)
+    s = sp.add_parser("audit"); s.add_argument("--limit", type=int, default=50); s.set_defaults(f=cmd_audit)
+    a = p.parse_args()
+    if not a.cmd:
+        print(__doc__.strip())
+        sys.exit(0)
+    ACTIVE["ws"] = a.ws
+    if getattr(a, "tool", None) and "/" in a.tool:          # bh pull shared/db: the workspace is part of the name
+        ACTIVE["ws"], a.tool = a.tool.split("/", 1)
+    a.f(a)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,74 @@
+{
+	email {$BH_ACME_EMAIL}
+	on_demand_tls {
+		ask http://control:8000/internal/tls-ask
+	}
+}
+
+# Every hostname: the platform, each workspace's own domains and its free
+# address, and every tool under them. Certificates are issued on first use,
+# after the control plane confirms the hostname is real.
+https:// {
+	tls {
+		on_demand
+	}
+
+	# The control plane decides what this host is. For its own faces (sign-in,
+	# the API, the tool list) it names itself as upstream; for a tool it checks
+	# who may enter and stamps the request with a signed identity. Any
+	# client-supplied identity header is dropped first.
+	# `route`, not `handle`: Caddy's fixed directive order puts request_header
+	# AFTER forward_auth, which would wipe the identity headers just added.
+	# route runs the lines in the order written.
+	route {
+		request_header -X-Boathouse-User
+		request_header -X-Boathouse-Name
+		request_header -X-Boathouse-Role
+		request_header -X-Boathouse-Tier
+		request_header -X-Boathouse-Labels
+		request_header -X-Boathouse-Tool
+		request_header -X-Boathouse-Workspace
+		request_header -X-Boathouse-Ts
+		request_header -X-Boathouse-Sig
+		request_header -X-Boathouse-Upstream
+		request_header -X-Boathouse-App-Cookie
+		forward_auth control:8000 {
+			uri /internal/authz
+			copy_headers X-Boathouse-User X-Boathouse-Name X-Boathouse-Role X-Boathouse-Tier X-Boathouse-Labels X-Boathouse-Tool X-Boathouse-Workspace X-Boathouse-Ts X-Boathouse-Sig X-Boathouse-Upstream X-Boathouse-App-Cookie
+		}
+		# Bound multipart bodies before the control plane can spool them to disk.
+		# The context limit is 200 MiB; allow 1 MiB for multipart/form metadata.
+		@deploy_upload {
+			method POST
+			path /api/tools/*/deploys
+			header X-Boathouse-Upstream control:8000
+		}
+		request_body @deploy_upload {
+			max_size 201MiB
+		}
+		# Session credentials belong to the gateway, never to hosted code. Keep
+		# app cookies, and prevent tool responses from setting reserved cookies.
+		@tool not header X-Boathouse-Upstream control:8000
+		reverse_proxy @tool {http.request.header.X-Boathouse-Upstream} {
+			header_up Cookie {http.request.header.X-Boathouse-App-Cookie}
+			header_up -X-Boathouse-App-Cookie
+			header_down Set-Cookie `(?i)^[\t ]*(bh_session|bh_account)[\t ]*=.*$` ""
+		}
+		# NOTE: do not strip X-Boathouse-Upstream with header_up here; Caddy applies
+		# header_up before it resolves the placeholder, and the dial address goes empty.
+		reverse_proxy {http.request.header.X-Boathouse-Upstream}
+	}
+
+	# A tool whose container is down gets a plain page, not a bare 502.
+	handle_errors {
+		@down expression {http.error.status_code} == 502
+		handle @down {
+			rewrite * /internal/down?host={http.request.host}
+			reverse_proxy control:8000
+		}
+	}
+}
+
+http:// {
+	redir https://{host}{uri} permanent
+}

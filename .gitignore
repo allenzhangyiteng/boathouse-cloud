@@ -1,0 +1,46 @@
+# Credentials and local configuration
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+secrets/
+private/
+credentials*
+backup.env
+# Runtime state, databases, backups and build archives
+state/
+state-*/
+builds/
+backups/
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+*.sql
+*.sql.gz
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.log
+# Local tools and generated caches
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+.DS_Store
+# Internal business material and recorded account screens
+docs/ceo/
+docs/incorporation/
+docs/outreach/
+docs/email/
+docs/pmf/
+docs/seo/
+control/site/media/

@@ -1,0 +1,6 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Porkbun public API error identifier used in a regression test, not an API key"
+regexes = ['''^INVALID_API_KEYS_001$''']

@@ -1,0 +1,46 @@
+/* Boat House blog: the marketing chrome, one reading column, the site's ink and ocean. */
+.post .wrap{padding:64px var(--pad) 96px;max-width:var(--w)}
+.post .col{max-width:720px;margin:0 auto}
+.post .crumbs{display:flex;gap:10px;font-size:13px;color:var(--muted);margin-bottom:28px}
+.post .crumbs a{color:var(--muted)}.post .crumbs a:hover{color:var(--accent)}
+.post h1{font-size:44px;line-height:1.1;letter-spacing:-.025em;text-wrap:balance;max-width:none}
+.post .lead{margin-top:18px;font-size:19px;color:var(--body)}
+.post .byline{display:flex;flex-wrap:wrap;gap:6px 18px;margin:22px 0 36px;font-size:14px;color:var(--muted);padding-bottom:22px;border-bottom:1px solid var(--hair)}
+.takeaways{background:var(--band);border:1px solid var(--hair);border-radius:6px;padding:22px 24px;margin:0 0 36px}
+.takeaways h2{font-size:14px;font-weight:500;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin:0 0 10px}
+.takeaways ul{margin:0;padding-left:18px;display:grid;gap:8px;color:var(--ink);font-size:16px}
+.prose{font-size:17px;line-height:1.65;color:var(--body)}
+.prose p{margin:0 0 20px}
+.prose h2{font-size:28px;font-weight:400;letter-spacing:-.02em;color:var(--ink);margin:44px 0 14px;max-width:none}
+.prose h3{font-size:20px;font-weight:500;color:var(--ink);margin:30px 0 10px}
+.prose ul,.prose ol{margin:0 0 20px;padding-left:22px;display:grid;gap:8px}
+.prose a{color:var(--accent);text-decoration:underline;text-decoration-color:var(--accent-border);text-underline-offset:3px}
+.prose a:hover{text-decoration-color:var(--accent)}
+.prose code{font-family:var(--mono);font-size:.92em;background:var(--band);border:1px solid var(--hair);border-radius:4px;padding:1px 5px;color:var(--ink)}
+.prose strong{color:var(--ink);font-weight:500}
+.tbl{overflow-x:auto;margin:0 0 24px;border:1px solid var(--hair);border-radius:6px}
+.tbl table{border-collapse:collapse;width:100%;font-size:15px}
+.tbl th,.tbl td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--hair);vertical-align:top}
+.tbl th{font-weight:500;color:var(--ink);background:var(--band);white-space:nowrap}
+.tbl tr:last-child td{border-bottom:0}
+.tbl td{font-variant-numeric:tabular-nums}
+.faq-block{margin-top:44px}.faq-block h2{font-size:28px;font-weight:400;letter-spacing:-.02em;margin:0 0 8px}
+.post .cta{margin:56px 0 0;padding:32px;border-radius:8px;background:linear-gradient(180deg,#0C2158,#0D1738);color:#fff}
+.post .cta h2{color:#fff;font-size:26px;font-weight:300;letter-spacing:-.02em;margin:0 0 10px;max-width:none}
+.post .cta p{color:var(--dark-body);margin:0 0 22px;max-width:52ch}
+.post .cta .more{color:var(--dark-muted);margin-left:16px}
+.related{margin-top:56px;padding-top:32px;border-top:1px solid var(--hair)}
+.related h2{font-size:14px;font-weight:500;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin:0 0 16px}
+.related ul{list-style:none;margin:0;padding:0;display:grid;gap:14px}
+.related li a{color:var(--ink);font-size:17px}.related li a:hover{color:var(--accent)}
+.related li small{display:block;color:var(--muted);font-size:14px;margin-top:2px}
+.bloglist h1{font-size:44px;letter-spacing:-.025em}
+.posts{list-style:none;margin:40px 0 0;padding:0;display:grid;gap:0}
+.posts li{border-top:1px solid var(--hair)}
+.posts li a{display:block;padding:26px 0;color:inherit}
+.posts .cat{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);font-weight:500}
+.posts h2{font-size:24px;font-weight:400;letter-spacing:-.02em;margin:6px 0 8px;max-width:none}
+.posts li a:hover h2{color:var(--accent)}
+.posts p{color:var(--body);max-width:60ch}
+.posts small{display:block;margin-top:10px;color:var(--muted);font-size:14px}
+@media(max-width:720px){.post h1,.bloglist h1{font-size:32px}.prose{font-size:16px}.post .cta{padding:24px}}

@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /account
+Disallow: /welcome
+Disallow: /requests/
+Sitemap: https://boathousecloud.com/sitemap.xml

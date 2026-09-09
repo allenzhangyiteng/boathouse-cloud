@@ -1,0 +1,48 @@
+# Boathouse: a small cloud for small software. One box, one login, one command.
+services:
+  caddy:
+    image: caddy:2
+    container_name: bh-caddy
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./caddy:/etc/caddy:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      BH_ACME_EMAIL: ${BH_ACME_EMAIL:-admin@${BH_DOMAIN}}
+    networks: [bh-core]
+
+  control:
+    build:
+      context: .
+      dockerfile: control/Dockerfile
+    container_name: bh-control
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      BH_STATE_DIR: /state
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${BH_STATE_HOST:-/var/lib/boathouse/state}:/state
+      - /var/lib/boathouse/backups:/backups:ro
+    networks: [bh-core]
+
+  postgres:
+    image: postgres:16
+    container_name: bh-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${BH_PG_PASSWORD}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks: [bh-core]
+
+volumes:
+  caddy_data:
+  caddy_config:
+  pg_data:
+
+networks:
+  bh-core:
+    name: bh-core
