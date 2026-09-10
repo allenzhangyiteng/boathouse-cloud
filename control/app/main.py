@@ -53,6 +53,14 @@ async def browser_origin(request: Request, call_next):
     if request.method not in SAFE_METHODS and origin and not request.headers.get("authorization") and not _same_origin(request, origin):
         return PlainTextResponse("Open this page on Boat House and try again.", 403)
     response = await call_next(request)
+    # These responses come from the control plane, not customer app content.
+    # Prevent another site from framing account/consent pages or MIME-sniffing
+    # downloads. Customer apps keep their own embedding policy.
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Content-Security-Policy", "frame-ancestors 'none'; base-uri 'self'; object-src 'none'")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
     if request.url.path.startswith(("/join/", "/verify-email/", "/reset-password/", "/handoff", "/api/claim")):
         response.headers["Cache-Control"] = "no-store"
         # no-referrer makes browser HTML form POSTs send Origin:null. Keep the

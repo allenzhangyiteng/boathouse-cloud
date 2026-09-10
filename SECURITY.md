@@ -19,3 +19,7 @@ The hosted-service terms and privacy copy bundled in the website are examples of
 ## Publication checks
 
 CI runs a file/content hygiene check and Gitleaks over the Git history. These checks reduce accidental disclosure and do not replace review. The initial public release was created from an allowlisted snapshot without the private development history, runtime state, internal business files, or recorded account screens.
+
+## Security maintenance
+
+The September 2026 maintenance update refreshes the web and cryptographic dependencies, restricts default database connection grants, protects control pages against framing, and uses a consistent SQLite backup with private archive permissions. A deployment operator must also restrict existing database PUBLIC grants and existing backup permissions after verifying legitimate readers. These updates do not confer a SOC 2 report, ISO 27001 certification or HIPAA compliance. Follow the trust model and commission an independent review before handling regulated or confidential customer data.

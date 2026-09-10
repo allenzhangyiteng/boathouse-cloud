@@ -103,6 +103,11 @@ def ensure_database(tool, password: str):
             pg.execute(sql.SQL("ALTER ROLE {} WITH PASSWORD {}").format(sql.Identifier(name), sql.Literal(password)))
         if not pg.execute("SELECT 1 FROM pg_database WHERE datname=%s", (name,)).fetchone():
             pg.execute(sql.SQL("CREATE DATABASE {} OWNER {}").format(sql.Identifier(name), sql.Identifier(name)))
+        # PostgreSQL grants CONNECT and TEMP to PUBLIC by default. Each tool
+        # must enter only its own database, even when it knows a sibling's name.
+        pg.execute(sql.SQL("REVOKE ALL ON DATABASE {} FROM PUBLIC").format(sql.Identifier(name)))
+        pg.execute(sql.SQL("GRANT CONNECT, TEMPORARY ON DATABASE {} TO {}").format(
+            sql.Identifier(name), sql.Identifier(name)))
     return f"postgresql://{name}:{password}@{config.PG_HOST}:5432/{name}"
 
 
