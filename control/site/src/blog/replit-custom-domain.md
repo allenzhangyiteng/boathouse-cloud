@@ -1,6 +1,7 @@
 title: Replit custom domain: how to connect one, and what it will not do
+seo_title: Replit Custom Domains: Setup and Access
 slug: replit-custom-domain
-description: Linking a custom domain to a Replit app in 2026: the A and TXT records, apex versus www, the plan you need, and why the domain gives you no login.
+description: Connect a custom domain to a Replit app. Understand DNS setup, HTTPS, and the separate decisions about app logins and team access.
 keyword: replit deploy custom domain, replit deploy to custom domain, replit deploy on custom domain
 date: 2026-09-08
 category: Hosting
@@ -44,7 +45,7 @@ The plan is only the fixed part. Hosting is billed on top of it, by deployment t
 
 This is the honest part, and it is the same on every host of this shape.
 
-A custom domain is a routing change. It tells the internet that `tools.yourcompany.example` means this app. It says nothing about who may open it. If the tool holds a client list, a rota, or anything you would not post publicly, you now have a nicely branded public URL for it.
+A custom domain is a routing change. It tells the internet that `tools.yourcompany.com` means this app. It says nothing about who may open it. If the tool holds a client list, a rota, or anything you would not post publicly, you now have a nicely branded public URL for it.
 
 Replit does offer an authentication feature you can add to the app, and it works. What you are signing up for is a build task rather than a setting: someone has to add the login, decide who counts as an admin, decide what a viewer may see, and handle the day a person leaves. For a team of five who wanted a shared tracker on their own domain, that is a project on top of a project.
 
@@ -54,7 +55,7 @@ Nor does the domain keep the app awake. Pointed at an Autoscale deployment, it s
 
 | | Replit, custom domain | Boat House |
 |---|---|---|
-| Buy a domain | In the Domains tab, price quoted there | `bh domain buy company.example --yes`, price quoted before you pay |
+| Buy a domain | In the Domains tab, price quoted there | `bh domain buy company.com --yes`, price quoted before you pay |
 | Point one you own | A record plus a permanent TXT record | Point it from the terminal |
 | Certificate | Issued by Replit, renews via the TXT record | Issued and renewed for you |
 | www and apex | Two separate entries | Both served |
@@ -67,8 +68,8 @@ Nor does the domain keep the app awake. Pointed at an Autoscale deployment, it s
 Boat House hosts small software built by an agent, so the domain and the login are the same job rather than two.
 
 - `bh deploy` in the project folder puts the tool live behind Boat House sign-in, with a Postgres database, file storage and nightly backups.
-- `bh domain buy company.example --yes` buys the domain from the terminal and attaches it. You see the price before it charges you. If you already own the name, you point it instead.
-- `bh share tracker sam@company.example --tier viewer` emails Sam a one-time link. Sam signs in with a named login. No seat, no Replit account, and `--tier editor` or `--tier admin` when they need more.
+- `bh domain buy company.com --yes` buys the domain from the terminal and attaches it. You see the price before it charges you. If you already own the name, you point it instead.
+- `bh share tracker teammate@example.com --tier viewer` emails Sam a one-time link. Sam signs in with a named login. No seat, no Replit account, and `--tier editor` or `--tier admin` when they need more.
 - `bh rollback tracker 1` puts yesterday's version back, and `bh logs tracker` shows what happened.
 - `bh export tracker` gives you the code and the data in one file if you ever want to leave.
 

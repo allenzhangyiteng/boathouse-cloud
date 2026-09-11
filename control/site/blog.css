@@ -44,3 +44,19 @@
 .posts p{color:var(--body);max-width:60ch}
 .posts small{display:block;margin-top:10px;color:var(--muted);font-size:14px}
 @media(max-width:720px){.post h1,.bloglist h1{font-size:32px}.prose{font-size:16px}.post .cta{padding:24px}}
+
+/* Share the current marketing design, with a quiet reading column. */
+.post { --body: #485259; --hair: var(--line); --band: var(--surface); --accent: var(--blue); --accent-border: #a4b8d5; --mono: ui-monospace, monospace; }
+.post .wrap { width: min(100%, 1248px); padding: 64px 36px 96px; margin-inline: auto; }
+.post h1 { font-size: clamp(32px, 4vw, 48px); line-height: 1.15; }
+.post .crumbs { flex-wrap: wrap; }
+.post .lead { line-height: 1.6; }
+.post .cta { background: var(--surface); border: 1px solid var(--line); color: var(--ink); }
+.post .cta h2 { color: var(--ink); font-weight: 400; }
+.post .cta p, .post .cta .more { color: var(--body); }
+.post .cta .more { display: inline-block; margin-top: 12px; }
+.faq-block details { border-bottom: 1px solid var(--line); padding-block: 18px; }
+.faq-block summary { cursor: pointer; font-weight: 500; }
+.faq-block details p { color: var(--body); margin-top: 12px; line-height: 1.65; }
+.post .prose a, .related a, .crumbs a, .post .cta .more { text-decoration: underline; text-underline-offset: 3px; }
+@media (max-width: 600px) { .post .wrap { padding: 40px 22px 64px; } .post .cta { padding: 22px; } }

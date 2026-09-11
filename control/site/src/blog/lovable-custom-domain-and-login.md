@@ -1,6 +1,7 @@
 title: Lovable custom domain and login: what it costs, what it cannot do, and the alternative
+seo_title: Lovable Custom Domains and App Access
 slug: lovable-custom-domain-and-login
-description: A plain guide to putting a Lovable app on your own domain and behind a login in 2026: which plan you need, what workspace-only access really means for your colleagues, and when to host the app elsewhere.
+description: A guide to Lovable custom domains, publishing, and app access. Understand which settings affect your URL and which protect your app.
 keyword: lovable custom domain, lovable login with username and password, lovable app hosting
 date: 2026-09-08
 category: Comparisons
@@ -50,8 +51,8 @@ None of this is a criticism of Lovable. It is a product for building apps, and i
 Lovable lets you export the code to GitHub. Once it is in a folder, the app is just a web app and can be hosted anywhere. On Boat House, the deploy is one command from Claude Code, Codex, or any terminal:
 
 - `bh deploy` puts the folder live behind Boat House sign-in, with a Postgres database and file storage. If the app has a Dockerfile, it is built; a plain static site is served as is.
-- `bh share app maria@company.example --tier viewer` emails Maria a one-time link. She signs in with her own email and password. No Lovable seat, no Google account.
-- `bh domain buy company.example --yes` buys and points a domain from the terminal, or `bh domain point` uses one you have.
+- `bh share app teammate@example.com --tier viewer` emails Maria a one-time link. She signs in with her own email and password. No Lovable seat, no Google account.
+- `bh domain buy company.com --yes` buys and points a domain from the terminal, or `bh domain point` uses one you have.
 - `bh export app` gives you the code and the data in one file if you ever want to leave.
 
 The price is [$10 a month a tool](/#pricing), no per-person charge, no card to sign up.

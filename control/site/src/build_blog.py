@@ -15,25 +15,31 @@ site = here.parent
 SRC = here / "blog"
 OUT = site / "blog"
 HOST = "https://boathousecloud.com"
-AUTHOR = {"name": "Boat House contributors", "role": "Founder, Boat House"}
+AUTHOR = {"name": "Boat House contributors", "role": "Boat House"}
 
 index_html = (site / "index.html").read_text()
-head_top = index_html[: index_html.index("<title>")]
-header = index_html[index_html.index('<a class="skip"'): index_html.index("<main")]
-footer = index_html[index_html.index("<footer"): index_html.index("<script>")]
-css_link = re.search(r'<link rel="stylesheet" href="/site/site.css[^"]*">', index_html).group(0)
-fonts = re.search(r'<link rel="preconnect".*?display=swap">', index_html, re.S).group(0)
-blog_css = f'<link rel="stylesheet" href="/site/blog.css?v={__import__("hashlib").md5((site/"blog.css").read_bytes()).hexdigest()[:8]}">'
-# the marketing nav links to page sections; on an article they must point back home
-header = header.replace('href="#', 'href="/#')
-footer = footer.replace('href="#', 'href="/#')
+head_top = '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width,initial-scale=1">\n'
+# Read only the shared chrome, never the homepage's metadata or scripts.
+header = re.search(r'<header\b.*?</header>', index_html, re.S).group(0)
+header = '<a class="skip-link" href="#main">Skip to content</a>' + header.replace('href="#', 'href="/#')
+footer = re.search(r'<footer\b.*?</footer>', index_html, re.S).group(0).replace('href="#', 'href="/#')
+css_link = re.search(r'<link rel="stylesheet" href="/site/clean.css[^"]*">', index_html).group(0)
+fonts = ""
+blog_css = f'<link rel="stylesheet" href="/site/blog.css?v={__import__("hashlib").sha256((site/"blog.css").read_bytes()).hexdigest()[:12]}">'
 
 
 def inline(s):
-    s = html.escape(s, quote=False)
+    # Escape attribute values separately; source Markdown cannot insert HTML or script URLs.
+    from urllib.parse import urlsplit
+    s = html.escape(s)
+    def link(m):
+        url = html.unescape(m.group(2))
+        if urlsplit(url).scheme.lower() not in ("", "https", "http", "mailto"):
+            return m.group(1)
+        return f'<a href="{html.escape(url, quote=True)}">{m.group(1)}</a>'
+    s = re.sub(r"\[(.+?)\]\((.+?)\)", link, s)
     s = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", s)
     s = re.sub(r"`(.+?)`", r"<code>\1</code>", s)
-    s = re.sub(r"\[(.+?)\]\((.+?)\)", lambda m: f'<a href="{m.group(2)}"{" rel=nofollow noopener" if m.group(2).startswith("http") and HOST not in m.group(2) else ""}>{m.group(1)}</a>', s)
     return s
 
 
@@ -94,22 +100,27 @@ def render_body(lines):
             tag = "ul" if m.group(1) == "-" else "ol"
             if lst and lst[0] != tag: flush_list()
             lst = lst or (tag, []); lst[1].append(m.group(2)); continue
-        if line.startswith("| "):
+        if line.startswith("|"):
             flush_para(); flush_list()
-            rows = [line]; out.append(("table", rows)); continue
+            if out and isinstance(out[-1], tuple) and out[-1][0] == "table":
+                out[-1][1].append(line)
+            else:
+                out.append(("table", [line]))
+            continue
         if not line.strip():
             flush_para(); flush_list(); continue
-        if out and isinstance(out[-1], tuple) and out[-1][0] == "table" and line.startswith("|"):
-            out[-1][1].append(line); continue
         para.append(line.strip())
     if q: faq.append((q, " ".join(a_lines)))
     # tables
     final = []
     for x in out:
         if isinstance(x, tuple):
-            rows = [r.strip().strip("|").split("|") for r in x[1] if not re.match(r"^\|?\s*-+", r)]
+            rows = [r.strip().strip("|").split("|") for r in x[1]]
+            rows = [r for r in rows if not all(re.fullmatch(r"\s*:?-+:?\s*", c) for c in r)]
+            if not rows:
+                continue
             head, body = rows[0], rows[1:]
-            final.append('<div class="tbl"><table><thead><tr>' + "".join(f"<th>{inline(c.strip())}</th>" for c in head) + "</tr></thead><tbody>"
+            final.append('<div class="tbl"><table><thead><tr>' + "".join(f'<th scope="col">{inline(c.strip())}</th>' for c in head) + "</tr></thead><tbody>"
                          + "".join("<tr>" + "".join(f"<td>{inline(c.strip())}</td>" for c in r) + "</tr>" for r in body) + "</tbody></table></div>")
         else:
             final.append(x)
@@ -123,7 +134,7 @@ def words(lines):
 def article_page(meta, body_lines, others):
     body, takeaways, faq = render_body(body_lines)
     n = words(body_lines)
-    mins = max(3, round(n / 220))
+    mins = max(1, round(n / 220))
     date = dt.date.fromisoformat(meta["date"])
     updated = dt.date.fromisoformat(meta["updated"]) if meta.get("updated") else date
     url = f"{HOST}/blog/{meta['slug']}"
@@ -134,14 +145,16 @@ def article_page(meta, body_lines, others):
     if faq:
         faq_html = '<section class="faq-block"><h2 id="questions">Questions people ask</h2><div class="faq">' + "".join(
             f"<details><summary>{inline(q)}</summary><p>{inline(a)}</p></details>" for q, a in faq) + "</div></section>"
-    related = [o for o in others if o["slug"] != meta["slug"]][:3]
+    preferred = [s.strip() for s in meta.get("related", "").split(",") if s.strip()]
+    related = sorted((o for o in others if o["slug"] != meta["slug"]),
+                     key=lambda o: preferred.index(o["slug"]) if o["slug"] in preferred else len(preferred))[:3]
     rel_html = ""
     if related:
         rel_html = '<section class="related"><h2>Read next</h2><ul>' + "".join(
             f'<li><a href="/blog/{o["slug"]}">{html.escape(o["title"])}</a><small>{html.escape(o["description"])}</small></li>' for o in related) + "</ul></section>"
     schema = {
         "@context": "https://schema.org", "@graph": [
-            {"@type": "Article", "headline": meta["title"], "description": meta["description"], "datePublished": date.isoformat(),
+            {"@type": "Article", "@id": url + "#article", "image": f"{HOST}/site/brand/boat-house-app-icon-ocean-1024.png", "headline": meta["title"], "description": meta["description"], "datePublished": date.isoformat(),
              "dateModified": updated.isoformat(), "author": {"@type": "Person", "name": AUTHOR["name"]},
              "publisher": {"@type": "Organization", "name": "Boat House", "url": HOST, "logo": {"@type": "ImageObject", "url": f"{HOST}/site/brand/boat-house-app-icon-ocean-1024.png"}},
              "mainEntityOfPage": url, "wordCount": n, "keywords": meta.get("keyword", "")},
@@ -150,10 +163,8 @@ def article_page(meta, body_lines, others):
                 {"@type": "ListItem", "position": 2, "name": "Blog", "item": HOST + "/blog"},
                 {"@type": "ListItem", "position": 3, "name": meta["title"], "item": url}]},
         ]}
-    if faq:
-        schema["@graph"].append({"@type": "FAQPage", "mainEntity": [
-            {"@type": "Question", "name": q, "acceptedAnswer": {"@type": "Answer", "text": a}} for q, a in faq]})
-    head = (f"{head_top}<title>{html.escape(meta['title'])} · Boat House</title>\n"
+    schema_json = json.dumps(schema, ensure_ascii=False).replace("<", "\\u003c")
+    head = (f"{head_top}<title>{html.escape(meta.get('seo_title', meta['title']))} | Boat House</title>\n"
             f'<meta name="description" content="{html.escape(meta["description"])}">\n'
             f'<link rel="canonical" href="{url}">\n'
             f'<meta property="og:title" content="{html.escape(meta["title"])}">\n'
@@ -164,13 +175,13 @@ def article_page(meta, body_lines, others):
             f'<meta name="twitter:card" content="summary">\n'
             f'<meta name="theme-color" content="#ffffff">\n<link rel="icon" href="/site/brand/favicon.svg" type="image/svg+xml">\n'
             f"{fonts}\n{css_link}\n{blog_css}\n"
-            f'<script type="application/ld+json">{json.dumps(schema, ensure_ascii=False)}</script>\n</head>\n<body>\n')
+            f'<script type="application/ld+json">{schema_json}</script>\n</head>\n<body>\n')
     main = (f'<main id="main" tabindex="-1" class="post"><article class="wrap"><div class="col">'
             f'<nav class="crumbs" aria-label="Breadcrumb"><a href="/">Boat House</a><span>/</span><a href="/blog">Blog</a><span>/</span><span>{html.escape(meta.get("category", "Guide"))}</span></nav>'
             f'<h1>{inline(meta["title"])}</h1><p class="lead">{inline(meta["description"])}</p>'
             f'<p class="byline"><span>{AUTHOR["name"]}, {AUTHOR["role"]}</span><span>{date.strftime("%B %-d, %Y")}</span><span>{mins} min read</span></p>'
             f'{tk}<div class="prose">{"".join(body)}</div>{faq_html}'
-            f'<aside class="cta"><h2>Put your tool online, with logins, today.</h2><p>Boat House is the Google Doc for small software: your agent deploys it, gives it a login and a database, and shares it by email. $10 a month a tool, no card to sign up. Connect your agent in about 90 seconds after email confirmation; funding and app builds take extra time.</p><a class="btn btn-p chev" href="/signup">90-second agent setup</a> <a class="more" href="/docs">Read the docs</a></aside>'
+            f'<aside class="cta"><h2>Put your tool online, with logins, today.</h2><p>Boat House is the Google Doc for small software: your agent deploys it, gives it a login and a database, and shares it by email. $10 a month a tool, no card to sign up. Connect your agent in about 90 seconds after email confirmation; funding and app builds take extra time.</p><a class="button" href="/signup">Get started</a> <a class="more" href="/docs">Read the docs</a></aside>'
             f'{rel_html}</div></article></main>')
     return head + header + main + footer + "</body>\n</html>\n", n
 
@@ -180,7 +191,7 @@ def index_page(posts):
         f'<li><a href="/blog/{p["slug"]}"><span class="cat">{html.escape(p.get("category", "Guide"))}</span><h2>{html.escape(p["title"])}</h2>'
         f'<p>{html.escape(p["description"])}</p><small>{dt.date.fromisoformat(p["date"]).strftime("%B %-d, %Y")} · {p["mins"]} min</small></a></li>'
         for p in posts)
-    head = (f"{head_top}<title>Blog · Boat House</title>\n"
+    head = (f"{head_top}<title>AI App Hosting &amp; Sharing Guides | Boat House</title>\n"
             f'<meta name="description" content="Plain answers about hosting the tools you build with Claude Code, Codex, Lovable, Replit and the rest: logins, domains, databases, costs.">\n'
             f'<link rel="canonical" href="{HOST}/blog">\n<meta property="og:title" content="The Boat House blog">\n'
             f'<meta property="og:description" content="Plain answers about hosting the tools you build with AI: logins, domains, databases, costs.">\n'
@@ -188,7 +199,7 @@ def index_page(posts):
             f'<meta property="og:image" content="{HOST}/site/brand/boat-house-app-icon-ocean-1024.png">\n'
             f'<meta name="theme-color" content="#ffffff">\n<link rel="icon" href="/site/brand/favicon.svg" type="image/svg+xml">\n'
             f"{fonts}\n{css_link}\n{blog_css}\n</head>\n<body>\n")
-    main = (f'<main id="main" tabindex="-1" class="post"><div class="wrap bloglist"><div class="col"><h1>Blog</h1>'
+    main = (f'<main id="main" tabindex="-1" class="post"><div class="wrap bloglist"><div class="col"><h1>Host it. Share it. Keep it running.</h1>'
             f'<p class="lead">Plain answers about hosting the tools you build with AI: logins, domains, databases, what things cost.</p>'
             f'<ul class="posts">{items}</ul></div></div></main>')
     return head + header + main + footer + "</body>\n</html>\n"
@@ -198,7 +209,16 @@ def main():
     posts = []
     for f in sorted(SRC.glob("*.md")):
         meta, body = parse(f.read_text())
-        meta["mins"] = max(3, round(words(body) / 220))
+        if not re.fullmatch(r"[a-z0-9-]{1,80}", meta.get("slug", "")) or f.stem != meta["slug"]:
+            raise ValueError(f"Invalid article slug in {f.name}")
+        for key in ("title", "description", "date", "category"):
+            if not meta.get(key):
+                raise ValueError(f"Missing {key} in {f.name}")
+        published = dt.date.fromisoformat(meta["date"])
+        modified = dt.date.fromisoformat(meta.get("updated") or meta["date"])
+        if not published <= modified <= dt.date.today():
+            raise ValueError(f"Invalid article dates in {f.name}")
+        meta["mins"] = max(1, round(words(body) / 220))
         posts.append({**meta, "_body": body, "_file": f})
     posts.sort(key=lambda p: p["date"], reverse=True)
     OUT.mkdir(exist_ok=True)
@@ -208,12 +228,15 @@ def main():
         (d / "index.html").write_text(page)
         print(f"blog/{p['slug']}  {n} words")
     (OUT / "index.html").write_text(index_page(posts))
-    urls = [(HOST + "/", dt.date.today().isoformat(), "weekly", "1.0"), (HOST + "/docs", dt.date.today().isoformat(), "weekly", "0.8"),
-            (HOST + "/blog", max(p["date"] for p in posts) if posts else dt.date.today().isoformat(), "daily", "0.8")]
-    urls += [(f"{HOST}/blog/{p['slug']}", p.get("updated") or p["date"], "monthly", "0.7") for p in posts]
-    sm = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + "".join(
-        f"  <url><loc>{u}</loc><lastmod>{m}</lastmod><changefreq>{c}</changefreq><priority>{pr}</priority></url>\n" for u, m, c, pr in urls) + "</urlset>\n"
-    (site / "sitemap.xml").write_text(sm)
+    # Omit dates when we cannot determine a real content modification date.
+    # Rebuilding unchanged pages must not pretend they have fresh content.
+    urls = [(HOST + path, None) for path in ("/", "/demo", "/docs", "/security", "/privacy", "/terms")]
+    urls.append((HOST + "/blog", max((p.get("updated") or p["date"] for p in posts), default=None)))
+    urls += [(f"{HOST}/blog/{p['slug']}", p.get("updated") or p["date"]) for p in posts]
+    sm = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+    for url, modified in urls:
+        sm += f"  <url><loc>{html.escape(url)}</loc>" + (f"<lastmod>{modified}</lastmod>" if modified else "") + "</url>\n"
+    (site / "sitemap.xml").write_text(sm + "</urlset>\n")
     (site / "robots.txt").write_text(f"User-agent: *\nAllow: /\nDisallow: /account\nDisallow: /welcome\nDisallow: /requests/\nSitemap: {HOST}/sitemap.xml\n")
     print(f"blog index, sitemap ({len(urls)} urls), robots.txt written")
 

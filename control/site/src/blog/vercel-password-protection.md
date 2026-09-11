@@ -1,6 +1,7 @@
 title: Vercel password protection costs $150 a month. Here are the cheaper ways to lock a site.
+seo_title: Vercel Password Protection and Alternatives
 slug: vercel-password-protection
-description: What Vercel's Password Protection includes in 2026, why it is $150 a month on Pro and absent on Hobby, the free protection you already have, and four cheaper ways to put a small app behind a login.
+description: Compare Vercel deployment protection with app sign-in. Understand access options and what to check when hosting a private team tool.
 keyword: vercel password protection cost, vercel password protect site, vercel password protection free
 date: 2026-09-08
 category: Comparisons
@@ -52,9 +53,9 @@ Caddy or nginx with basic auth in front of the app. Cheapest in dollars, and now
 Boat House was built for the internal-tool case. Every tool sits behind Boat House sign-in, with named accounts and three tiers, viewer, editor and admin, and a Postgres database and file storage included. You do not write the auth; it is the front door of the platform.
 
 - `bh deploy` in the project folder puts it live at its own address.
-- `bh share tool alex@company.example --tier viewer` emails Alex a one-time link; Alex sets a password and is in.
-- `bh unshare tool alex@company.example` removes Alex the day Alex leaves. Nobody else's password changes.
-- `bh domain point company.example --to tool` puts it on your domain; `bh domain buy` buys one if you do not have it.
+- `bh share tool teammate@example.com --tier viewer` emails Alex a one-time link; Alex sets a password and is in.
+- `bh unshare tool teammate@example.com` removes Alex the day Alex leaves. Nobody else's password changes.
+- `bh domain point company.com --to tool` puts it on your domain; `bh domain buy` buys one if you do not have it.
 
 The price is [$10 a month a tool](/#pricing), no per-person charge, no card to sign up. Everything is a command, so Claude Code or Codex can do the deploy and the sharing without anyone opening a dashboard.
 
@@ -87,4 +88,4 @@ Middleware with basic auth is free if you can write it. If you want real logins 
 
 ### Can I keep the site on Vercel and put only the private tool on Boat House?
 
-Yes, and that is the usual shape: the marketing site stays on Vercel, the internal tool moves to Boat House on a subdomain like `tools.company.example`.
+Yes, and that is the usual shape: the marketing site stays on Vercel, the internal tool moves to Boat House on a subdomain like `tools.company.com`.

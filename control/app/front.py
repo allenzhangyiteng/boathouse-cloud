@@ -79,6 +79,9 @@ def landing(request: Request):
     """GET / on the platform host: the marketing site when one is built, else the signup form."""
     if not _platform(request):
         return HTMLResponse(pages.unknown(_main()._host(request)), 404)
+    if _main()._host(request) == "www." + config.PLATFORM_DOMAIN:
+        query = "?" + request.url.query if request.url.query else ""
+        return RedirectResponse(f"https://{config.PLATFORM_DOMAIN}/{query}", 308)
     index = SITE / "index.html"
     if index.exists():
         return FileResponse(index, media_type="text/html; charset=utf-8", headers={"Cache-Control": "public, max-age=60"})
@@ -95,36 +98,6 @@ def start(request: Request, code: str | None = None, workspace: str = ""):
     if email:
         return HTMLResponse(pages.start_signed_in(email, auth.memberships(email), auth.csrf_token(CSRF), workspace, code or ""))
     return HTMLResponse(pages.signup(config.PLATFORM_DOMAIN, auth.csrf_token("signup"), name=workspace, code=code or ""))
-
-
-@router.get("/blog")
-@router.get("/blog/{slug}")
-def blog_page(request: Request, slug: str = ""):
-    """The blog: static pages built by control/site/src/build_blog.py (platform host only)."""
-    if not _platform(request):
-        return HTMLResponse(pages.unknown(_main()._host(request)), 404)
-    if slug and not re.fullmatch(r"[a-z0-9-]{1,80}", slug):
-        raise HTTPException(404)
-    f = SITE / "blog" / slug / "index.html" if slug else SITE / "blog" / "index.html"
-    if not f.is_file():
-        raise HTTPException(404)
-    return FileResponse(f, media_type="text/html; charset=utf-8", headers={"Cache-Control": "public, max-age=300"})
-
-
-@router.get("/sitemap.xml")
-@router.get("/robots.txt")
-def crawler_files(request: Request):
-    """sitemap.xml and robots.txt for the platform host; tool hosts get a robots.txt that says stay out."""
-    name = request.url.path.lstrip("/")
-    if not _platform(request):
-        if name == "robots.txt":
-            return PlainTextResponse("User-agent: *\nDisallow: /\n")
-        raise HTTPException(404)
-    f = SITE / name
-    if not f.is_file():
-        raise HTTPException(404)
-    return FileResponse(f, media_type="application/xml" if name.endswith(".xml") else "text/plain; charset=utf-8",
-                        headers={"Cache-Control": "public, max-age=3600"})
 
 
 @router.get("/blog")
@@ -309,14 +282,14 @@ def security_page(request: Request):
 def terms_page(request: Request):
     if not _platform(request):
         raise HTTPException(404)
-    return HTMLResponse(pages.legal("Terms of Service", legal.TERMS, legal.UPDATED))
+    return HTMLResponse(pages.legal("Terms of Service", legal.TERMS, legal.UPDATED, config.PLATFORM_DOMAIN))
 
 
 @router.get("/privacy")
 def privacy_page(request: Request):
     if not _platform(request):
         raise HTTPException(404)
-    return HTMLResponse(pages.legal("Privacy Policy", legal.PRIVACY, legal.UPDATED))
+    return HTMLResponse(pages.legal("Privacy Policy", legal.PRIVACY, legal.UPDATED, config.PLATFORM_DOMAIN))
 
 
 @router.get("/docs")

@@ -127,9 +127,11 @@ def _e(s) -> str:
     return html.escape(str(s) if s is not None else "")
 
 
-def page(title: str, body: str, nav: str = "", wide: bool = False) -> str:
+def page(title: str, body: str, nav: str = "", wide: bool = False, *, description: str = "", canonical: str = "") -> str:
+    metadata = (f'<meta name="description" content="{_e(description)}"><link rel="canonical" href="{_e(canonical)}">'
+                if canonical else '<meta name="robots" content="noindex, follow">')
     return (f"<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
-            f"<title>{_e(title)}</title><link rel=icon href=/site/brand/favicon.svg type=image/svg+xml>{STYLE}</head><body>"
+            f"<title>{_e(title)}</title>{metadata}<link rel=icon href=/site/brand/favicon.svg type=image/svg+xml>{STYLE}</head><body>"
             f"<header class=top><a class=brand href=/>{MARK}Boat House</a><nav>{nav}</nav></header>"
             f"<main class='{'wide' if wide else ''}'>{body}</main>{SCRIPT}</body></html>")
 
@@ -670,16 +672,21 @@ def _md(text: str) -> str:
     return "\n".join(out)
 
 
-def legal(title: str, md: str, updated: str) -> str:
+def legal(title: str, md: str, updated: str, platform: str = "boathousecloud.com") -> str:
     return page(f"Boat House {title}", f"""<h1>{_e(title)}</h1><p class=lead>Last changed {_e(updated)}. <a href="/terms">Terms of Service</a> · <a href="/privacy">Privacy Policy</a></p>
-{_md(md)}""", nav='<a href="/">Home</a><a href="/docs">Docs</a><a href="/login">Sign in</a>')
+{_md(md)}""", nav='<a href="/">Home</a><a href="/docs">Docs</a><a href="/login">Sign in</a>',
+                description=f"Boat House {title}: the terms and practices for using our hosted app service.",
+                canonical=f"https://{platform}/" + ("privacy" if title == "Privacy Policy" else "terms"))
 
 
 def docs(md: str, platform: str) -> str:
-    return page("Boat House docs", f"""<p><a href="/skill.md">This page as markdown, for agents</a></p>
+    md = re.sub(r"^(#{1,2}) ", r"#\1 ", md, flags=re.M)
+    return page("Boat House Docs | Deploy, Share & Manage Apps", f"""<p><a href="/skill.md">This page as markdown, for agents</a></p>
 <h1>Everything <code>bh</code> can do</h1>
 <p class=lead>This page is written for your agent, which is why it talks about you in the third person. You are welcome to read along.</p>
 <p>To connect, get a connection code on your <a href="/account">account page</a>, click <strong>Copy connection</strong>, and paste into your agent’s chat. Your agent handles installation and checks the connection. Python 3.9 or newer is required on the agent’s machine.</p>
 {_md(md)}
 <p><small>Agents: fetch <a href="/skill.md">/skill.md</a> (the same text as markdown) or <a href="/llms.txt">/llms.txt</a>.</small></p>""",
-                nav='<a href="/#product">How it works</a><a href="/account">My apps</a><a class=btn href="/signup">Sign up</a>', wide=True)
+                nav='<a href="/#product">How it works</a><a href="/account">My apps</a><a class=btn href="/signup">Sign up</a>', wide=True,
+                description="Connect your coding agent to Boat House. Learn how to deploy apps, share access, connect domains, and manage databases, backups, and exports.",
+                canonical=f"https://{platform}/docs")

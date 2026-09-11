@@ -496,3 +496,16 @@ main:focus { outline: none; }
 @media (prefers-reduced-motion: reduce) {
   .motion-toggle { display: none; }
 }
+
+/* Useful paths from the homepage into the hosting and sharing guides. */
+.guide-section { padding-block: 68px; border-top: 1px solid var(--line); }
+.guide-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; margin-bottom: 32px; }
+.guide-heading h2 { font-size: clamp(25px, 3vw, 36px); }
+.guide-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 36px; }
+.guide-grid > a { display: block; position: relative; padding-block: 12px 30px; }
+.guide-grid h3 { font-size: 22px; line-height: 1.25; margin: 12px 0; max-width: 25ch; }
+.guide-grid p { color: var(--muted); font-size: 15px; max-width: 34ch; }
+.guide-arrow { display: block; margin-top: 18px; color: var(--blue); transition: transform .2s; }
+.guide-grid > a:hover .guide-arrow { transform: translate(3px, -3px); }
+@media (max-width: 700px) { .guide-heading { display: block; } .guide-heading > a { display: inline-block; margin-top: 18px; } .guide-grid { grid-template-columns: 1fr; gap: 10px; } .guide-grid > a + a { border-top: 1px solid var(--line); padding-top: 26px; } }
+@media (prefers-reduced-motion: reduce) { .guide-arrow { transition: none; } }
