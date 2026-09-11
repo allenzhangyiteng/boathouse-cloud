@@ -30,6 +30,7 @@ CUSTOMER='customer@fixture.test'
 def env(tmp_path,monkeypatch):
     monkeypatch.setattr(config,'STATE_DIR',tmp_path)
     monkeypatch.setattr(config,'DB_PATH',tmp_path/'state.sqlite3')
+    monkeypatch.setattr(main,'_ip',lambda request:tmp_path.name)
     monkeypatch.setattr(socket.socket,'connect',lambda *a:pytest.fail('No network in partner tests'))
     db.init()
     main.create_workspace('Partner Studio',PARTNER,password='Synthetic-test-password-448!')
@@ -378,3 +379,26 @@ def test_payout_form_prepares_and_records_only_confirmed_exact_transfer(env):
     cl.post('/partners/payouts/record',data=fields)
     assert total()['paid_cents']==1100 and total()['unpaid_cents']==0
     assert 'no-store' in cl.get('/partners/payouts').headers['cache-control']
+
+
+def test_anonymous_agent_cannot_claim_another_customers_lifetime_referral(env,monkeypatch):
+    cl=browser()
+    code=referrals.code_for(PARTNER)
+    email='not-yet-a-customer@fixture.test'
+    r=cl.post('/api/signup',json={'workspace':'Unconfirmed Prospect','email':email,'code':code})
+    assert r.status_code==200 and r.json()['requires_signup']
+    assert 'code='+code in r.json()['signup_url']
+    assert email not in r.json()['signup_url']
+    with db.conn() as c:
+        assert not c.execute('SELECT 1 FROM referral_customers WHERE email=?',(email,)).fetchone()
+        assert not c.execute('SELECT 1 FROM workspaces WHERE owner_email=?',(email,)).fetchone()
+
+
+def test_unaccepted_invitation_cannot_block_customers_own_referral(env):
+    email='invited-only@fixture.test'
+    main.create_workspace('Unrequested Invitation',email)
+    code=referrals.code_for(PARTNER)
+    proof=auth.signup_token('Actually Requested',email,code)
+    main.create_workspace('Actually Requested',email,password='Synthetic-test-password-448!',code=code,signup_proof=proof)
+    with db.conn() as c:
+        assert c.execute('SELECT referrer_email FROM referral_customers WHERE email=?',(email,)).fetchone()[0]==PARTNER

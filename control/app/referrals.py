@@ -63,7 +63,7 @@ def attribution(c, customer_email, code='', when=None):
         raise ReferralError("That referral code is not one of ours; check it, or leave it out.")
     if r['email'] == email:
         raise ReferralError("That is your own code; it works for other people.")
-    if c.execute("SELECT 1 FROM workspaces WHERE owner_email=?", (email,)).fetchone():
+    if c.execute("SELECT 1 FROM workspaces w JOIN accounts a ON a.email=w.owner_email WHERE w.owner_email=? AND a.pw_hash IS NOT NULL", (email,)).fetchone():
         raise ReferralError("Referral codes are for new customer accounts. This account already owns apps or a workspace.")
     when = time.time() if when is None else when
     c.execute("INSERT INTO referral_customers VALUES(?,?,?,?,?)", (email,r['email'],r['code'],when,when+DISCOUNT_DAYS*86400))

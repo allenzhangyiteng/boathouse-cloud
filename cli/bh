@@ -268,7 +268,11 @@ def cmd_signup(a):
         except ValueError:
             detail = payload
         die(f"{detail}  (HTTP {e.code})")
-    print(f"workspace {j['workspace']} created." + (f" Half price on every tool for 60 days, thanks to {j['referred_by']}." if j.get("referred_by") else ""))
+    if j.get('requires_signup'):
+        print(j['note'])
+        print(j['signup_url'])
+        return
+    print(f"workspace {j['workspace']} created." + (" Half price on every tool for 60 days with your referral code." if j.get("referred_by") else ""))
     print(f"tools    {j['home']}")
     if j.get("invite_url"):
         print(f"sign in  {j['invite_url']}   (the owner confirms their email and chooses a password)")

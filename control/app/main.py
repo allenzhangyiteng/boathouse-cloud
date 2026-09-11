@@ -14,7 +14,7 @@ import json
 import secrets
 import shutil
 import time
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, urlparse, urlencode
 
 from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
@@ -1970,6 +1970,17 @@ def api_signup(request: Request, body: dict):
         raise HTTPException(429, "too many signups from this address; try again in an hour")
     auth.record_attempt(key)
     email = (body.get("email") or "").strip().lower()
+    code = body.get('code')
+    if code:
+        if not isinstance(code,str):
+            raise HTTPException(422,'Referral code must be text.')
+        name = body.get('workspace') or body.get('name') or ''
+        validate_workspace(name,email,code)
+        # An anonymous agent cannot bind somebody else's email to its partner.
+        # The owner selects and confirms the account through the normal flow.
+        url = f'https://{config.PLATFORM_DOMAIN}/signup?'+urlencode({'workspace':name,'code':code.strip().upper()})
+        return {'requires_signup':True,'signup_url':url,
+                'note':'Open this signup link and confirm your email to apply the referral code. No account has been created yet.'}
     email_limit = f"signup-email|{email}"
     if auth.throttle(email_limit, limit=3):
         raise HTTPException(429, "please wait fifteen minutes before requesting another setup email")

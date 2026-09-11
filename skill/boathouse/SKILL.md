@@ -215,7 +215,7 @@ and point them at their workspace page (https://boathousecloud.com/account), whe
 
 ## New workspace from the terminal
 
-`bh signup "Acme Studio" owner@acme.example` [--code MARIA-K3Q7] creates a workspace (a referral code makes every tool half price for 60 days) and sends the owner a secure invitation by email and prints a shareable invitation page plus the workspace address. The owner confirms their mailbox and chooses a password, then copies the connection from the welcome page. Agents that speak MCP connect to
+`bh signup "Acme Studio" owner@acme.example` creates a workspace and emails the owner a secure invitation. With `--code BH-XXXXXXXXXX`, it instead returns a signup link with the referral code filled in; the owner confirms their own email before the referral is attached. A referral makes every app half price for 60 days. After confirming their mailbox and choosing a password, the owner copies the connection from the welcome page. Agents that speak MCP connect to
 https://mcp.boathousecloud.com/mcp (Streamable HTTP) with header `Authorization: Bearer <project key>`:
 
 ```
