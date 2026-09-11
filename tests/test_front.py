@@ -44,7 +44,7 @@ def test_landing_form_and_wrong_hosts(c):
     r = c.get("/signup", headers=P)    # the sign-up form, under the name people expect
     assert r.status_code == 200 and "name=workspace" in r.text and 'href="/login"' in r.text
     r = c.get("/start", headers=P)     # the signup form
-    assert r.status_code == 200 and "name=workspace" in r.text and "Email me a setup link" in r.text and 'href="/login"' in r.text
+    assert r.status_code == 200 and "name=workspace" in r.text and "Create account" in r.text and 'href="/login"' in r.text
     assert c.get("/account", headers={"host": f"api.{PLAT}"}).status_code == 404
     assert c.post("/signup", headers={"host": f"auth.starter.{PLAT}"}, data={"x": "1"}).status_code == 404
 
@@ -131,7 +131,7 @@ def owner_session(c) -> str:
 def test_signup_page_when_already_signed_in_offers_workspaces(c):
     sid = owner_session(c)
     r = c.get("/signup", headers=P, cookies={"bh_account": sid})
-    assert r.status_code == 200 and "already signed in" in r.text and "Acme Studio" in r.text and "Another workspace" in r.text
+    assert r.status_code == 200 and "already signed in" in r.text and "Acme Studio" in r.text and "Add a separate business or team" in r.text
 
 
 def test_switcher_and_member_view(c):

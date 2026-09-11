@@ -124,6 +124,7 @@ def test_only_running_deployed_tools_appear_online(state, monkeypatch):
     monkeypatch.setattr(front.deploy, 'status', status)
     shown=front._welcome_state(db.workspace('second'), 'owner@example.test')['tools']
     assert [t['name'] for t in shown] == ['working'] and 'unbuilt' not in checked
+    assert shown[0]['open'] == '/open/second/working'
 
 
 def test_mcp_selects_named_workspace_and_refuses_conflicting_selection(state, monkeypatch):
@@ -196,3 +197,23 @@ def test_logout_of_secondary_workspace_disconnects_only_its_account(cli, monkeyp
     cli.cmd_logout(SimpleNamespace(workspace='second'))
     assert [x['key'] for x in cli.read_config()['logins']]==['keep']
     assert cli.read_config()['default']=='other'
+
+
+def test_account_app_links_use_authorized_handoff_and_hide_unshared_apps(state, monkeypatch):
+    email = 'guest@example.test'
+    with db.conn() as c:
+        c.execute('INSERT INTO users(id,workspace_id,email,role,created) VALUES(?,?,?,?,?)', ('u_guest','ws_second',email,'guest',time.time()))
+        for slug in ('shared','private'):
+            c.execute('INSERT INTO tools(id,workspace_id,slug,name,signing_key,db_password,created,resource_key) VALUES(?,?,?,?,?,?,?,?)', ('t_'+slug,'ws_second',slug,slug,'s','p',time.time(),'r-'+slug))
+        c.execute('INSERT INTO grants(id,tool_id,email,role,tier,labels,created,created_by) VALUES(?,?,?,?,?,?,?,?)', ('g_shared','t_shared',email,'viewer','viewer','',time.time(),'owner@example.test'))
+    monkeypatch.setattr(front.deploy,'status',lambda tool:{'state':'absent'})
+    memberships = auth.memberships(email)
+    view = front._member_view(email,memberships,memberships[0])
+    assert [t['name'] for t in view['tools']] == ['shared']
+    assert view['tools'][0]['open'] == '/open/second/shared'
+    assert 'href="/open/second/shared"' in pages.account_member(view)
+    memberships = auth.memberships('owner@example.test')
+    selected = next(m for m in memberships if m['slug']=='second')
+    owner_view = front._view('owner@example.test',memberships,selected)
+    markup = pages.account(owner_view)
+    assert 'href="/open/second/shared"' in markup and 'href="/open/second/private"' in markup

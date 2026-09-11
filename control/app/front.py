@@ -298,6 +298,13 @@ def demo_page(request: Request):
     return FileResponse(f, media_type="text/html; charset=utf-8", headers={"Cache-Control": "public, max-age=60"})
 
 
+@router.get("/security")
+def security_page(request: Request):
+    if not _platform(request):
+        raise HTTPException(404)
+    return FileResponse(SITE / "security.html", media_type="text/html; charset=utf-8")
+
+
 @router.get("/terms")
 def terms_page(request: Request):
     if not _platform(request):
@@ -368,14 +375,14 @@ def signup(request: Request, workspace: str = Form(""), email: str = Form(""), p
         return again("That form had expired, or its token did not match (a copy from another tab?). Load the page again and retry.")
     key = f"signup|{M._ip(request)}"
     if auth.throttle(key, limit=5, window=3600):
-        return again("Too many workspaces from this address already. Try again in an hour.", 429)
+        return again("Too many signup attempts from this address. Please try again in an hour.", 429)
     if auth.has_password(email):
         # an existing Boathouse account: the password must be theirs
         if not password:
             return _resume_signup(workspace, code)
         if not auth.check_login(email, password):
             auth.record_attempt(key)
-            return again("That email already has a Boathouse password, and this is not it. Sign in, then create the workspace from your account page.", 401)
+            return again("That email already has an account. Sign in with your password or reset it to continue.", 401)
     else:
         try:
             M.validate_workspace(workspace, email, code)
@@ -389,8 +396,8 @@ def signup(request: Request, workspace: str = Form(""), email: str = Form(""), p
         token = auth.signup_token(workspace, email, code)
         url = f"https://{config.PLATFORM_DOMAIN}/verify-email/{token}"
         sent = mail.send(email, "Confirm your email for Boat House",
-                         f"Finish creating {workspace} on Boat House by opening this link and choosing your own password:\n\n{url}\n\n"
-                         "This link expires in one hour. If you did not request a workspace, you can ignore this email.\n")
+                         f"Confirm your email to create your Boat House account for {workspace}. Open this link and choose your password:\n\n{url}\n\n"
+                         "This link expires in one hour. If you did not request an account, you can ignore this email.\n")
         if not sent:
             return again("We could not send your confirmation email. Please try again later or contact Boat House support at support@example.com.", 503)
         return HTMLResponse(pages.signup_sent(email), 202)
@@ -480,7 +487,7 @@ def _welcome_state(ws, email: str) -> dict:
             "pending_payment": billing.pending_payment(ws),
             "discount_until": ws["discount_until"], "referred_by": ws["referred_by"], "tool_day_cents": referrals.tool_day_for(ws, billing.TOOL_DAY),
             "balance_cents": billing.balance(ws["id"]), "autorefill_cents": ws["autorefill_cents"], "autorefill_cap_cents": ws["autorefill_cap_cents"],
-            "tools": [{"name": t["name"], "url": hosts.tool_url(ws, t["slug"])} for t in tools if deploy.status(t)["state"] == "running"]}
+            "tools": [{"name": t["name"], "url": hosts.tool_url(ws, t["slug"]), "open": f"/open/{ws['slug']}/{t['slug']}"} for t in tools if deploy.status(t)["state"] == "running"]}
 
 
 # =============================================================================
@@ -650,7 +657,7 @@ def login_submit(request: Request, email: str = "", password: str = "", next: st
     if not auth.check_login(email, password):
         auth.record_attempt(key)
         db.audit(email, "login.failed", None, {"ip": M._ip(request), "on": "platform"})
-        return again("That email and password do not match." + ("" if auth.has_password(email) else " You have no password yet; open your invite link."), 401)
+        return again("That email and password do not match. Try again, reset your password, or create an account if you’re new.", 401)
     db.audit(email, "login.ok", None, {"ip": M._ip(request), "on": "platform"})
     return _signed_in(email, nxt)
 
@@ -711,7 +718,9 @@ def _member_view(email: str, memberships, m) -> dict:
     shown = []
     for t in tools:
         tier = M._tier_for(user, t)
-        shown.append({"name": t["name"], "url": f"https://{t['slug']}.{base}", "my_tier": tier[0] if tier else None})
+        if not tier:
+            continue
+        shown.append({"name": t["name"], "url": f"https://{t['slug']}.{base}", "open": f"/open/{m['slug']}/{t['slug']}", "my_tier": tier[0]})
     return {"email": email, "memberships": memberships, "slug": m["slug"], "name": m["name"], "my_role": m["my_role"], "tools": shown,
             "referral": referrals.summary(email),
             "can_mint": _can_mint(email, m), "csrf": auth.csrf_token(CSRF), "platform": config.PLATFORM_DOMAIN}
@@ -737,7 +746,7 @@ def _view(email: str, memberships, m, notice: str | None = None, error: str | No
         with db.conn() as c:
             rel = c.execute("SELECT seq, note FROM releases WHERE id=?", (t["current_release_id"],)).fetchone()
             grants = [dict(g) for g in c.execute("SELECT email, tier, labels FROM grants WHERE tool_id=? ORDER BY email", (t["id"],))]
-        shown.append({"slug": t["slug"], "name": t["name"], "url": f"https://{t['slug']}.{base}", "state": state,
+        shown.append({"slug": t["slug"], "name": t["name"], "url": f"https://{t['slug']}.{base}", "open": f"/open/{ws['slug']}/{t['slug']}", "state": state,
                       "release": dict(rel) if rel else None, "default_access": t["default_access"],
                       "default_tier": t["default_tier"], "grants": grants})
     balance = billing.balance(ws["id"])

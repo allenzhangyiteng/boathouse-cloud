@@ -11,10 +11,8 @@ MARK = ('<svg class="mark" viewBox="0 0 772 404" aria-hidden="true"><polygon poi
         '<polygon points="24,220 334,184 304,296" fill="#79AAFB"/><polygon points="352,200 420,272 366,312 316,294" fill="#AECFFD"/>'
         '<polygon points="368,176 772,0 440,258" fill="#8CB5FB"/><polygon points="772,0 554,368 400,324" fill="#307BF9"/></svg>')
 
-STYLE = """<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500&family=Geist+Mono:wght@400;500&display=swap">
-<style>
-:root{--ink:#14263F;--body:#425466;--muted:#64748D;--hair:#E5EDF5;--band:#F8FAFD;--accent:#307BF9;--accent-deep:#1F62D6;--accent-border:#A9C7FA;--tint:#EAF2FF;--good:#1A7C4F;--good-dot:#22A06B;--bad:#B42318;--sans:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;--mono:"Geist Mono","SF Mono",Menlo,monospace}
+STYLE = """<style>
+:root{--ink:#14263F;--body:#425466;--muted:#64748D;--hair:#E5EDF5;--band:#F8FAFD;--accent:#307BF9;--accent-deep:#1F62D6;--accent-border:#A9C7FA;--tint:#EAF2FF;--good:#1A7C4F;--good-dot:#22A06B;--bad:#B42318;--sans:"Helvetica Neue",Helvetica,Arial,sans-serif;--mono:"SF Mono",Menlo,monospace}
 *{box-sizing:border-box}
 body{margin:0;background:#fff;color:var(--ink);font:16px/1.5 var(--sans);-webkit-font-smoothing:antialiased}
 .top{height:64px;border-bottom:1px solid var(--hair);display:flex;align-items:center;padding:0 32px;gap:24px}
@@ -89,6 +87,12 @@ details{margin:8px 0}details summary{cursor:pointer;color:var(--muted);font-size
 .sw a,.sw strong{padding:4px 10px;border:1px solid var(--hair);border-radius:999px;font-weight:400}
 .sw strong{border-color:var(--accent);color:var(--accent)}
 @media(max-width:640px){.top{padding:0 16px}main{margin:40px auto}form.add{grid-auto-flow:row}.top nav{gap:12px}.step{grid-template-columns:32px 1fr;gap:12px}}
+
+:root{--ink:#101116;--body:#62666f;--muted:#62666f;--hair:#e5e7ec;--band:#f5f6f8;--accent:#2546ff;--accent-deep:#1836d9}
+h1,h2{font-weight:600;letter-spacing:-.035em}button,a.btn{border-radius:6px}a:focus-visible,button:focus-visible,summary:focus-visible{outline:3px solid var(--accent);outline-offset:4px}
+.onboarding h1{font-size:36px;line-height:1.13}.onboarding .lead{font-size:17px;line-height:1.6}.flow-progress{font-size:12px;color:var(--muted);margin-bottom:19px}.onboarding form{gap:16px}.onboarding input{padding:12px;border-color:#d8dbe3;border-radius:6px}.onboarding form>button{width:100%;min-height:47px}.onboarding .optional-field{margin:0}.optional-field label{margin-top:14px}.form-note{font-size:12px;line-height:1.6;margin:0}.auth-switch{padding-top:20px;border-top:1px solid var(--hair);font-size:14px}.auth-fineprint{font-size:12px;line-height:1.7;margin-top:21px}.forgot-link{font-size:13px;justify-self:end;margin-top:-6px}.onboarding .copy{background:var(--band);color:var(--ink);font-family:var(--sans);padding:15px;font-size:14px;border:1px solid var(--hair)}.onboarding .copy button{background:var(--accent);color:#fff;border:0;padding:10px 15px;min-height:40px}.onboarding .copy textarea{background:#fff;color:var(--ink);border:1px solid var(--hair);padding:12px}.onboarding .step h3{font-weight:500;line-height:1.4}.onboarding .step p{font-size:14px;line-height:1.7}.onboarding .step small{font-size:12px}.onboarding details p{margin-top:12px}.billing-setup>summary{display:inline-block;color:var(--accent);border:1px solid #d8dbe3;border-radius:6px;padding:10px 15px;font-weight:500;list-style:none}.billing-setup>summary::-webkit-details-marker{display:none}.billing-setup[open]>summary{margin-bottom:15px}.onboarding .status{font-size:12px}.onboarding .step.done>.n{background:#1a7c4f}
+@media(max-width:640px){.onboarding h1{font-size:31px}.top{gap:12px}.top nav{font-size:12px}.onboarding .copy{grid-template-columns:1fr}.onboarding .copy button{justify-self:stretch}.onboarding .copy span{font-size:12px}.onboarding ul.tools li{align-items:flex-start;flex-wrap:wrap}}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important}}
 </style>"""
 
 SCRIPT = """<script>
@@ -108,10 +112,10 @@ SCRIPT = """<script>
   if(w){var ws=w.dataset.ws,tries=0;function poll(){fetch('/welcome/status?ws='+encodeURIComponent(ws),{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(s){
       var c=document.getElementById('connect');if(s.connected&&c){c.classList.add('done');document.getElementById('cstat').textContent='Connected. Your agent is ready.';}
       var t=document.getElementById('tstat');if(t&&s.tools&&s.tools.length){
-        var u=new URL(s.tools[0].url,location.origin);t.textContent='First tool online: ';
+        var u=new URL(s.tools[0].open||s.tools[0].url,location.origin);t.textContent='Your app is online: ';
         if(u.protocol==='https:'||u.protocol==='http:'){var a=document.createElement('a');a.href=u.href;a.textContent=s.tools[0].name;t.appendChild(a)}
       }
-      var k=document.getElementById('card');if(s.card_on_file&&k&&!k.classList.contains('done')){k.classList.add('done');location.reload();}
+      var k=document.getElementById('card');if(s.balance_cents>0&&k&&!k.classList.contains('done')){k.classList.add('done');location.reload();}
       if((!s.connected||!s.tools.length)&&tries++<400)setTimeout(poll,3000);
     }).catch(function(){if(tries++<400)setTimeout(poll,5000)})}
     poll();}
@@ -190,16 +194,16 @@ def invite_email(email: str, csrf: str, message: str | None = None, sent: bool =
 
 
 def signup_sent(email: str) -> str:
-    return page("Check your email", f'<h1>Check your email</h1><p>We sent a confirmation link to {_e(email)}. Open it to choose your password and finish creating your workspace.</p><p>Check your spam folder too. The link works for one hour.</p><p><a href="/signup">Use a different email or send another link</a></p>')
+    return page("Check your email", f'<div class=onboarding><p class=flow-progress>Step 2 of 3 · Confirm your email</p><h1>Check your email</h1><p>We sent a secure link to <strong>{_e(email)}</strong>. Open it to choose your password and finish creating your account.</p><p>The link works for one hour. Check your spam folder if it hasn’t arrived.</p><p><a href="/signup">Use a different email or send another link</a></p><p class=auth-fineprint>Need a hand? <a href="mailto:support@example.com">Email support</a>.</p></div>')
 
 
 def verify_signup(email: str, workspace: str, csrf: str, error: str | None = None) -> str:
-    note = f'<p class=err>{_e(error)}</p>' if error else ""
-    return page("Finish creating your workspace", f'''<h1>Your email is confirmed</h1><p>Choose your password for {_e(workspace)} as {_e(email)}.</p>{note}
+    note = f'<p class=err role=alert>{_e(error)}</p>' if error else ""
+    return page("Choose your Boat House password", f'''<div class=onboarding><p class=flow-progress>Step 2 of 3 · Email confirmed</p><h1>Choose your password</h1><p>Use this to sign in as <strong>{_e(email)}</strong>.</p>{note}
 <form method=post><input type=hidden name=csrf value="{_e(csrf)}">
-<label>Password (12+ characters)<input type=password name=password required minlength=12 autocomplete=new-password autofocus></label>
-<label>Again<input type=password name=password2 required minlength=12 autocomplete=new-password></label>
-<button>Create my workspace</button></form>''')
+<label>Password<input type=password name=password required minlength=12 autocomplete=new-password autofocus aria-describedby=password-help></label><small id=password-help>Use at least 12 characters.</small>
+<label>Confirm password<input type=password name=password2 required minlength=12 autocomplete=new-password></label>
+<button>Continue to my apps</button></form></div>''')
 
 
 def signup_expired() -> str:
@@ -268,65 +272,58 @@ def platform() -> str:
 
 # ---- the platform host: start, sign in, welcome, the workspace page ------------------------------------------
 
-NAV_OUT = '<a href="/#setup">How it works</a><a href="/docs">Docs</a><a href="/login">Sign in</a>'
+NAV_OUT = '<a href="/#product">How it works</a><a href="/docs">Docs</a><a href="/login">Sign in</a>'
 
 
 def _doors(which: str) -> str:
-    """Sign up or sign in: the two ways in, side by side on both pages."""
-    up = "strong" if which == "up" else "a"
-    inn = "strong" if which == "in" else "a"
-    return (f'<div class=sw style="margin:0 0 28px"><{up} href="/signup">Create a workspace</{up}>'
-            f'<{inn} href="/login">Sign in</{inn}></div>')
+    if which == "up":
+        return '<p class="auth-switch">Already have an account? <a href="/login">Sign in</a></p>'
+    return '<p class="auth-switch">New to Boat House? <a href="/signup">Create an account</a></p>'
 
 
 def signup(platform: str, csrf: str, error: str | None = None, name: str = "", email: str = "", code: str = "") -> str:
-    err = f"<p class=err>{_e(error)}</p>" if error else ""
-    return page("Sign up for Boat House", f"""{_doors("up")}<h1>Sign up. <span class=muted>90-second agent setup.</span></h1>
-<p class=lead>A name for your workspace and your email. We will send a link to finish setting up. No card. Tools are $10 a month each, from a balance you top up when you are ready.</p>
-<p><small>After confirming your email, click Copy connection and paste it into your agent. Allow about 90 seconds for that connection; email delivery, funding, and app builds take extra time.</small></p>{err}
+    err = f'<p class=err role=alert>{_e(error)}</p>' if error else ""
+    referral_open = " open" if code else ""
+    return page("Create your Boat House account", f'''<div class=onboarding>
+<p class=flow-progress>Step 1 of 3 · Your account</p>
+<h1>Create your account</h1><p class=lead>Get your app online and share it with your team.</p>{err}
 <form method=post action=/signup>
 <input type=hidden name=csrf value="{_e(csrf)}">
-<label>Workspace name<input name=workspace value="{_e(name)}" required autofocus placeholder="Acme Studio"></label>
-<label>Your email<input type=email name=email value="{_e(email)}" required autocomplete=email></label>
-<label>Referral code, if someone gave you one<input name=code value="{_e(code)}" placeholder="MARIA-K3Q7" autocomplete=off style="text-transform:uppercase"><small>Half price on every tool for your first 60 days.</small></label>
-<button>Email me a setup link</button>
-<p><small>By creating a workspace you agree to the <a href="/terms">Terms of Service</a> and the <a href="/privacy">Privacy Policy</a>.</small></p></form>
-<p><small>Your tools get the free address <code>&lt;tool&gt;.&lt;workspace&gt;.{_e(platform)}</code>;
-a .com of your own is one sentence to your agent later.</small></p>""", nav='<a href="/#setup">How it works</a><a href="/docs">Docs</a><a href="/login">Sign in</a>')
+<label>Email<input type=email name=email value="{_e(email)}" required autofocus autocomplete=email placeholder="you@example.com"></label>
+<label>App or business name<input name=workspace value="{_e(name)}" required minlength=3 maxlength=80 autocomplete=organization placeholder="e.g. Oak Street Studio" aria-describedby=account-name-help></label>
+<small id=account-name-help>A name for your apps in Boat House. You can keep several apps together here.</small>
+<details class=optional-field{referral_open}><summary>Have a referral code?</summary><label>Referral code<input name=code value="{_e(code)}" placeholder="MARIA-K3Q7" autocomplete=off style="text-transform:uppercase"><small>Half price on every tool for your first 60 days.</small></label></details>
+<button>Create account</button><p class=form-note>We’ll email you a secure link to finish. No payment card needed.</p>
+</form>{_doors("up")}
+<p class=auth-fineprint>Managed hosting starts at $10 per app per month. Add credit when you’re ready to publish. By continuing, you agree to our <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
+</div>''', nav='<a href="/demo">How it works</a><a href="mailto:support@example.com">Get help</a>')
 
 
 def start_signed_in(email: str, memberships: list, csrf: str, workspace: str = "", code: str = "") -> str:
-    """Someone already signed in landed on the sign-up page: offer the three sensible moves."""
-    mine = "".join(f'<li><a href="/account?ws={_e(m["slug"])}">{_e(m["name"])}</a><small>{_e(m["my_role"])}</small></li>' for m in memberships)
-    return page("You are signed in", f"""<h1>You are already signed in. <span class=muted>As {_e(email)}.</span></h1>
-<p class=lead>Pick a workspace, make another one, or sign out to start fresh with a different email.</p>
-<ul class=tools>{mine or '<li><small>No workspaces yet.</small></li>'}</ul>
-<h2>Another workspace</h2>
-<form class=add method=post action="/account/new-workspace"><input type=hidden name=csrf value="{_e(csrf)}">
-<input type=hidden name=code value="{_e(code)}">
-<label>Workspace name<input name=workspace value="{_e(workspace)}" required placeholder="Acme Studio"></label><button>Create</button></form>
-<p><a class="btn s" href="/logout">Sign out and start fresh</a></p>""",
-                nav='<a href="/docs">Docs</a><a href="/account">My workspace</a><a href="/logout">Sign out</a>')
+    mine = "".join(f'<li><a href="/account?ws={_e(m["slug"])}">{_e(m["name"])}</a><a class="btn s" href="/account?ws={_e(m["slug"])}">Open apps</a></li>' for m in memberships)
+    show_new = " open" if workspace or not memberships else ""
+    return page("Your apps", f'''<div class=onboarding><h1>Your apps</h1><p>You’re already signed in as {_e(email)}.</p>
+<ul class=tools>{mine or '<li>No apps yet. Add your app or business name below to get started.</li>'}</ul>
+<details{show_new}><summary>Add a separate business or team</summary><p>Keep its apps, people, and billing separate from your other apps.</p>
+<form method=post action="/account/new-workspace"><input type=hidden name=csrf value="{_e(csrf)}"><input type=hidden name=code value="{_e(code)}">
+<label>App or business name<input name=workspace value="{_e(workspace)}" required minlength=3 maxlength=80 placeholder="e.g. Oak Street Studio"></label><button>Add business or team</button></form></details>
+<p class=auth-fineprint>Using a different account? <a href="/logout">Sign out</a>.</p></div>''', nav='<a href="/account">My apps</a><a href="mailto:support@example.com">Get help</a>')
 
 
 def platform_login(platform: str, csrf: str, next_url: str, error: str | None = None, email: str = "") -> str:
-    err = f"<p class=err>{_e(error)}</p>" if error else ""
-    return page("Sign in to Boat House", f"""{_doors("in")}<h1>Sign in</h1><p class=lead>Your workspaces, balance, keys and people.</p>{err}
+    err = f'<p class=err role=alert>{_e(error)}</p>' if error else ""
+    return page("Sign in to Boat House", f'''<div class=onboarding><h1>Welcome back</h1><p class=lead>Sign in to open your apps and manage your account.</p>{err}
 <form method=post action=/login>
 <input type=hidden name=next value="{_e(next_url)}"><input type=hidden name=csrf value="{_e(csrf)}">
 <label>Email<input type=email name=email value="{_e(email)}" required autofocus autocomplete=username></label>
 <label>Password<input type=password name=password required autocomplete=current-password></label>
-<button>Sign in</button></form>
-<p><small><a href="/forgot-password">Forgot your password?</a> New here? <a href="/signup">Create a workspace</a> and confirm your email to get started.</small></p>""",
-                nav='<a href="/#setup">How it works</a><a href="/docs">Docs</a><a class=btn href="/signup">Sign up</a>')
+<a class=forgot-link href="/forgot-password">Forgot your password?</a><button>Sign in</button></form>
+{_doors("in")}</div>''', nav='<a href="/demo">How it works</a><a href="mailto:support@example.com">Get help</a>')
 
 
 def no_workspaces(email: str, csrf: str) -> str:
-    return page("Your account", f"""<h1>Your account</h1><p>Signed in as <code>{_e(email)}</code>. You do not belong to any workspace yet.</p>
-<h2>Start one</h2>
-<form method=post action=/account/new-workspace><input type=hidden name=csrf value="{_e(csrf)}">
-<label>Workspace name<input name=workspace required placeholder="Acme Studio"></label><button>Create the workspace</button></form>""",
-                nav='<a href="/logout">Sign out</a>')
+    return page("Your apps", f'''<div class=onboarding><h1>Let’s get your app online</h1><p>You’re signed in as {_e(email)}. Give your apps a name to get started.</p>
+<form method=post action=/account/new-workspace><input type=hidden name=csrf value="{_e(csrf)}"><label>App or business name<input name=workspace required minlength=3 maxlength=80 placeholder="e.g. Oak Street Studio"></label><button>Continue</button></form></div>''', nav='<a href="/logout">Sign out</a>')
 
 
 def _connect(platform: str, key: str, code: str | None = None, workspace: str = "", email: str = "") -> str:
@@ -349,8 +346,8 @@ def _connect(platform: str, key: str, code: str | None = None, workspace: str = 
               f"account and workspace; otherwise send me to https://{platform}/account for a new connection code. "
               f"Do not change agent security settings or bypass an approval denial.")
     mcp = _e(json.dumps({"mcpServers": {"boathouse": {"type": "http", "url": f"https://mcp.{platform}/mcp", "headers": {"Authorization": f"Bearer {key}"}}}}))
-    return f"""<p>Click <strong>Copy connection</strong>, then paste into your Claude Code, Codex or Cursor chat. Your agent gets the setup instructions and takes it from there.</p>
-<div class=copy><span>{_e(code) if code else 'Ready to connect'}</span><textarea hidden readonly aria-label="Connection instructions">{_e(prompt)}</textarea><button type=button>Copy connection</button></div>
+    return f"""<p>Copy this message and paste it into <strong>Claude Code, Codex, or Cursor</strong>, in the conversation that has your app’s files. Your agent handles the setup.</p>
+<div class=copy><span>Your private connection</span><textarea hidden readonly aria-label="Connection instructions">{_e(prompt)}</textarea><button type=button>Copy connection</button></div>
 <p><small>Use it within 15 minutes. It works once. Keep it private until your agent is connected. Your agent may ask you to approve setup.</small></p>
 <details><summary>Advanced connection options</summary><p>For agents with command access, the same installer is below. If your agent only supports MCP, use this connection configuration.</p>
 <div class=copy><span>{_e(line)}</span><button type=button>Copy</button></div>
@@ -371,47 +368,31 @@ def _months20(v: dict) -> str:
 
 
 def _money_block(v: dict, back: str) -> str:
-    """Card, a recommended top-up, and optional capped auto-refill. Every charge here is the owner's own click."""
+    """One primary funding action; preserve explicit payment and auto-refill consent."""
     a = f"/account/{_e(v['slug'])}"
     csrf = f'<input type=hidden name=csrf value="{_e(v["csrf"])}"><input type=hidden name=back value="{back}">'
-    promises = f"""<p><strong>Two promises about money.</strong></p>
-<ol>
-<li><strong>We can only spend what you put on the balance.</strong> It cannot go below zero: when it runs out, tools pause and nothing is charged. A card changes that only if you turn on auto-refill, and then we never charge more than the monthly cap you set.</li>
-<li><strong>Every time your agent is about to spend money for you</strong>, a domain or extra storage, it tells you the price and waits for your yes in the chat. Your agent cannot charge your card itself. The only thing that runs on its own is the {_month_rate(v)} for each tool that is running, counted by the day.</li>
-</ol>"""
     if not v["card_on_file"]:
-        want = v.get("want") or ""
-        addr = f"&lt;tool&gt;.{_e(v['slug'])}.{_e(v['platform'])}"
-        return f"""<p><strong>Your tools get a free address</strong> like <code>{addr}</code>, with HTTPS. You can connect your agent and look around with no card. Before your first tool goes online, put money on the balance: $20 is {_months20(v)} of one tool. A .com of your own is one sentence to your agent later, about $13 a year.</p>
-{promises}
-<p><strong>Do you want your own domain name, now or soon?</strong> We recommend $20 to start, which is {_months20(v)} of one tool. If you want a domain, we recommend an extra $20 of credit for that, so $40. You can always add more later.</p>
-<div class=row style="display:flex;gap:10px;flex-wrap:wrap">
-<form class=inline method=post action="{a}/card">{csrf}<input type=hidden name=want value=none><button{' class=s' if want == 'domain' else ''}>Add a card, $20 to start</button></form>
-<form class=inline method=post action="{a}/card">{csrf}<input type=hidden name=want value=domain><button{' class=s' if want != 'domain' else ''}>Add a card, $40 with room for a domain</button></form>
-</div>
-<p><small>Adding a card charges nothing by itself. After the card is saved you come back here and put the money on with one more click. Or skip this for now and come back when you are ready to put something online. Your agent cannot charge your card; only you can, here.</small></p>"""
-    refill = v.get("autorefill_cents") or 0
-    cap = v.get("autorefill_cap_cents") or 0
-    refill_line = (f"Auto-refill is on: {_money(refill)} whenever the balance drops under $5.00" + (f", never more than {_money(cap)} a month" if cap else "") + "."
-                   if refill else "Auto-refill is off: the balance only changes when you top it up.")
-    want = v.get("want") or ""
+        return f'''<p>Start with $20 of hosting credit, enough for about {_months20(v)} of one app. First, save your card on our payment provider’s secure page.</p>
+<form method=post action="{a}/card">{csrf}<input type=hidden name=want value=none><button>Add a payment method</button></form>
+<p><small>Saving your card charges nothing. Your agent cannot charge your card itself. You’ll return here to approve adding credit. Domains and extra storage cost extra; your agent quotes those before purchase.</small></p>'''
     quotes = v.get("topup_quotes", {})
     pending = v.get("pending_payment")
     recovery = ""
     if pending:
-        recovery = f'<p>A previous {_money(pending["cents"])} payment is still being confirmed. Another payment will wait until its result is known.</p>'
+        recovery = f'<p role=status>We’re confirming your previous {_money(pending["cents"])} payment. Another payment will wait until its result is known.</p>'
         if pending["kind"] == "manual":
             recovery += f'<form method=post action="{a}/topup">{csrf}<input type=hidden name=dollars value="{pending["cents"]/100:.2f}"><input type=hidden name=operation_id value="{_e(pending["id"])}"><button>Check the previous payment</button></form>'
-    return f"""<div class=status><span class=dot></span>Card on file. {refill_line}</div>
-{recovery}
-{promises if not v.get('balance_cents', 0) > 1000 else ''}
-<div class=row style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
-<form class=inline method=post action="{a}/topup">{csrf}<input type=hidden name=dollars value=20><input type=hidden name=operation_id value="{_e(quotes.get('2000', ''))}"><button{' disabled' if not quotes.get('2000') else ''}{' class=s' if want == 'domain' else ''}>Put $20 on the balance</button></form>
-<form class=inline method=post action="{a}/topup">{csrf}<input type=hidden name=dollars value=40><input type=hidden name=operation_id value="{_e(quotes.get('4000', ''))}"><button{' disabled' if not quotes.get('4000') else ''}{' class=s' if want != 'domain' else ''}>Put $40 on, with room for a domain</button></form>
-<form class=inline method=post action="{a}/autorefill">{csrf}<input type=hidden name=dollars value=20><input type=hidden name=cap value=100><button class=s>{'Keep' if refill else 'Turn on'} auto-refill: $20 when low, at most $100 a month</button></form>
-{f'<form class=inline method=post action="{a}/autorefill">{csrf}<input type=hidden name=dollars value=0><input type=hidden name=cap value=0><button class=s>Turn auto-refill off</button></form>' if refill else ''}
-</div>
-<p style="margin-top:12px"><small>Every charge shows on your ledger. Your agent quotes each purchase (a domain, a top-up) and waits for your yes; it cannot charge the card itself. With auto-refill on, nothing pauses and nothing waits on you.</small></p>"""
+    refill = v.get("autorefill_cents") or 0
+    cap = v.get("autorefill_cap_cents") or 0
+    refill_line = (f'Auto-refill adds {_money(refill)} when credit falls below $5, with a {_money(cap)} monthly cap.' if refill else 'Auto-refill is off. Your card is only charged when you approve a top-up.')
+    return f'''{recovery}<p>Your card is saved. Add $20 to run one app for about {_months20(v)}.</p>
+<form method=post action="{a}/topup">{csrf}<input type=hidden name=dollars value=20><input type=hidden name=operation_id value="{_e(quotes.get('2000', ''))}"><button{' disabled' if not quotes.get('2000') else ''}>Add $20 hosting credit</button></form>
+<p><small>This charges your saved card $20. Credit pays for your running apps each day. If it runs out, apps pause; their data is kept.</small></p>
+<details><summary>More credit and optional auto-refill</summary><p>{refill_line}</p>
+<form method=post action="{a}/topup">{csrf}<input type=hidden name=dollars value=40><input type=hidden name=operation_id value="{_e(quotes.get('4000', ''))}"><button class=s{' disabled' if not quotes.get('4000') else ''}>Add $40 credit</button></form>
+<form method=post action="{a}/autorefill">{csrf}<input type=hidden name=dollars value=20><input type=hidden name=cap value=100><button class=s>{'Keep' if refill else 'Enable'} auto-refill: $20, up to $100/month</button></form>
+{f'<form method=post action="{a}/autorefill">{csrf}<input type=hidden name=dollars value=0><input type=hidden name=cap value=0><button class=s>Turn auto-refill off</button></form>' if refill else ''}
+<p><small>Auto-refill authorizes automatic charges up to the monthly cap. Leave it off to approve every top-up yourself.</small></p></details>'''
 
 
 def _balance_line(v: dict) -> str:
@@ -437,41 +418,33 @@ def _referral_block(r: dict | None) -> str:
 
 
 def welcome(v: dict) -> str:
-    """After signup: connect an agent, sort out money, close the tab."""
     a = f"/account/{_e(v['slug'])}"
     csrf = f'<input type=hidden name=csrf value="{_e(v["csrf"])}">'
-    if v.get("key"):
-        connect = _connect(v["platform"], v["key"], v.get("code"), v["slug"], v.get("email", ""))
-    else:
-        connect = f"""<p>Need to connect an agent? Get a fresh connection code and paste it into your agent’s chat.</p>
-<form class=add method=post action="{a}/token">{csrf}<input type=hidden name=back value=welcome><input type=hidden name=name value="agent"><button>Get a connection code</button></form>"""
-    cstat = ('<span class=dot></span>Connected. Your agent is ready.'
-             if v.get("connected") else '<span class="dot wait"></span>Waiting for your agent to connect. This updates by itself.')
-    tstat = (f'<span class=dot></span>First tool online: <a href="{_e(v["tools"][0]["url"])}">{_e(v["tools"][0]["name"])}</a>'
-             if v.get("tools") else "")
-    notice = f"<div class=notice>{_e(v['notice'])}</div>" if v.get("notice") else ""
-    return page("Welcome to Boat House", f"""<div id=welcome data-ws="{_e(v['slug'])}">
-<h1>{_e(v['name'])} is ready. <span class=muted>Connect your agent and let it take over.</span></h1>
-<p class=lead>{_balance_line(v)} Everything from here on happens in your agent.</p>{notice}
-<div class=steps>
-<div class="step {'done' if v.get('connected') else ''}" id=connect><div class=n>1</div><div><h3>Connect your agent</h3>{connect}<div class=status id=cstat>{cstat}</div><div class=status id=tstat>{tstat}</div></div></div>
-<div class="step {'done' if v['card_on_file'] else ''}" id=card><div class=n>2</div><div><h3>Money, on your terms</h3><p>{_rate_line(v)} Nothing runs until there is money on the balance; connecting your agent and looking around cost nothing.</p><div id=kstat>{_money_block(v, "welcome")}</div></div></div>
-<div class=step><div class=n>3</div><div><h3>Close this tab</h3><p>That is the whole setup. Talk to your agent in plain words; it puts things online, shares them, and asks before it spends. If anything is unclear, email <a href="mailto:support@example.com">support@example.com</a>; every email is answered within one business day. Your workspace page is always at <a href="/account?ws={_e(v['slug'])}">{_e(v['platform'])}/account</a> if you want to look.</p>
-<div class=row><a class="btn s" href="/account?ws={_e(v['slug'])}">See my workspace</a><a class="btn s" href="/docs">Help</a></div>
-{_referral_block(v.get('referral'))}</div></div>
-</div></div>""", nav=f'<a href="/docs">Docs</a><a href="/account?ws={_e(v["slug"])}">My workspace</a><a href="/logout">Sign out</a>')
+    connect = (_connect(v["platform"], v["key"], v.get("code"), v["slug"], v.get("email", "")) if v.get("key") else
+               f'<p>Get a fresh connection message, then paste it into your agent’s chat.</p><form method=post action="{a}/token">{csrf}<input type=hidden name=back value=welcome><input type=hidden name=name value=agent><button>Get a connection code</button></form>')
+    cstat = ('Connected. Your agent is ready.' if v.get('connected') else 'Waiting for your agent to connect. This updates automatically.')
+    tstat = (f'Your app is online: <a href="{_e(v["tools"][0].get("open", v["tools"][0]["url"]))}">{_e(v["tools"][0]["name"])}</a>' if v.get('tools') else '')
+    funded = v.get('balance_cents', 0) > 0
+    notice = f'<div class=notice>{_e(v["notice"])}</div>' if v.get('notice') else ''
+    return page("Connect your agent — Boat House", f'''<div id=welcome class=onboarding data-ws="{_e(v['slug'])}">
+<p class=flow-progress>Step 3 of 3 · Connect your agent</p><h1>Your account is ready.</h1><p class=lead>One paste connects the agent that built your app. It handles publishing and gives you a link to share.</p>{notice}
+<div class=steps><div class="step {'done' if v.get('connected') else ''}" id=connect><div class=n>1</div><div><h3>Copy. Paste. You’re connected.</h3>{connect}<div class=status id=cstat role=status>{_e(cstat)}</div><div class=status id=tstat>{tstat}</div>
+<details><summary>I use Claude or ChatGPT in my browser</summary><p>You need a coding agent that can access your app’s files, such as Claude Code, Codex, or Cursor. If you built the app in a regular chat, bring its files into one of those agents first. <a href="mailto:support@example.com">Email support if you’d like help.</a></p></details></div></div>
+<div class="step {'done' if funded else ''}" id=card><div class=n>2</div><div><h3>{'Your hosting credit is ready' if funded else 'Add hosting credit when you’re ready'}</h3><p>{_balance_line(v)} A running app costs {_month_rate(v)}. Connecting your agent is free.</p>
+<details class=billing-setup><summary>{'Manage hosting credit' if funded else 'Add hosting credit'}</summary>{_money_block(v, 'welcome')}</details></div></div>
+<div class=step><div class=n>3</div><div><h3>Your agent takes it from here</h3><p>Keep working in the same conversation. Your agent can put the app online, share it with your team, and publish updates. You can say: <q>Put this app online with Boat House and give me the link.</q></p><div class=row><a class="btn s" href="/account?ws={_e(v['slug'])}">Go to my apps</a><a href="mailto:support@example.com">Get help</a></div></div></div></div></div>''', nav=f'<a href="/account?ws={_e(v["slug"])}">My apps</a><a href="/logout">Sign out</a>')
 
 
 def once(title: str, heading: str, lead: str, value: str, note: str, slug: str) -> str:
     """One thing shown one time: an invite link to pass on."""
     return page(title, f"""<h1>{heading}</h1><p>{lead}</p><code class=once>{_e(value)}</code>{note}
-<p><a class="btn s" href="/account?ws={_e(slug)}">Back to the workspace</a></p>""",
-                nav=f'<a href="/docs">Docs</a><a href="/account?ws={_e(slug)}">My workspace</a><a href="/logout">Sign out</a>')
+<p><a class="btn s" href="/account?ws={_e(slug)}">Back to my apps</a></p>""",
+                nav=f'<a href="/docs">Docs</a><a href="/account?ws={_e(slug)}">My apps</a><a href="/logout">Sign out</a>')
 
 
 def access_request(v: dict) -> str:
     """The page behind the Allow button: who asks, for what, one button. Decided ones say so."""
-    nav = f'<a href="/docs">Docs</a><a href="/account?ws={_e(v["slug"])}">My workspace</a><a href="/logout">Sign out</a>'
+    nav = f'<a href="/docs">Docs</a><a href="/account?ws={_e(v["slug"])}">My apps</a><a href="/logout">Sign out</a>'
     an = "an" if v["tier"][0] in "ae" else "a"
     if v.get("state") == "allowed":
         return page("Allowed", f"""<h1>Allowed. <span class=muted>{_e(v['email'])} is now {an} {_e(v['tier'])} on {_e(v['tool_name'])}.</span></h1>
@@ -506,15 +479,15 @@ def welcome_shared(v: dict) -> str:
     return page(f"Welcome to {v['name']}", f"""<div id=welcome-shared>
 <h1>You are in. <span class=muted>{_e(v['name'])} shared this with you.</span></h1>
 <p class=lead>Signed in as {_e(v['email'])}. {'Two things' if v.get('can_change') else 'One thing'}, then close this tab.</p>
-<div class=steps>{''.join(steps)}</div></div>""", nav=f'<a href="/docs">Docs</a><a href="/account?ws={_e(v["slug"])}">My workspace</a><a href="/logout">Sign out</a>')
+<div class=steps>{''.join(steps)}</div></div>""", nav=f'<a href="/docs">Docs</a><a href="/account?ws={_e(v["slug"])}">My apps</a><a href="/logout">Sign out</a>')
 
 
 def new_key(key: str, name: str, email: str, platform: str, slug: str, code: str | None = None) -> str:
     return page("Connect your agent", f"""<h1>Connect your agent.</h1>
 <p>Connect as {_e(email)} to {_e(slug)}. Your agent can do what you are allowed to do in your workspaces.</p>
 {_connect(platform, key, code, slug, email)}
-<p><a class="btn s" href="/account?ws={_e(slug)}">Back to the workspace</a></p>""",
-                nav=f'<a href="/docs">Help</a><a href="/account?ws={_e(slug)}">My workspace</a><a href="/logout">Sign out</a>')
+<p><a class="btn s" href="/account?ws={_e(slug)}">Back to my apps</a></p>""",
+                nav=f'<a href="/docs">Help</a><a href="/account?ws={_e(slug)}">My apps</a><a href="/logout">Sign out</a>')
 
 
 def _switcher(v: dict) -> str:
@@ -522,11 +495,11 @@ def _switcher(v: dict) -> str:
     for m in v["memberships"]:
         label = f"{_e(m['name'])}"
         items.append(f"<strong>{label}</strong>" if m["slug"] == v["slug"] else f'<a href="/account?ws={_e(m["slug"])}">{label}</a>')
-    return f"<div class=sw><span>Workspaces:</span>{''.join(items)}</div>"
+    return f"<div class=sw><span>Your teams:</span>{''.join(items)}</div>" if len(items) > 1 else ""
 
 
 def account_member(v: dict) -> str:
-    cards = "".join(f"<div class=card><h3>{_e(t['name'])}</h3><a class=url href=\"{_e(t['url'])}\">{_e(t['url'])}</a><div class=meta>your access: {_e(t['my_tier'] or 'none')}</div></div>"
+    cards = "".join(f"<div class=card><h3>{_e(t['name'])}</h3><a class=url href=\"{_e(t.get('open', t['url']))}\">{_e(t['url'])}</a><div class=meta>your access: {_e(t['my_tier'] or 'none')}</div></div>"
                     for t in v["tools"]) or "<p><small>No tools shared with you yet.</small></p>"
     admin_on = [t["name"] for t in v["tools"] if t.get("my_tier") == "admin"]
     agent = ""
@@ -570,7 +543,7 @@ def account(v: dict) -> str:
         rel = f"version {t['release']['seq']}" + (f" · {_e(t['release']['note'])}" if t["release"].get("note") else "") if t["release"] else "never deployed"
         who = "everyone in the workspace" if t["default_access"] == "members" else "only people listed"
         return (f"<div class=card><h3><span class='dot {'' if t['state'] == 'running' else 'off'}'></span>{_e(t['name'])}</h3>"
-                f"<a class=url href=\"{_e(t['url'])}\">{_e(t['url'])}</a><div class=meta>{_e(t['state'])} · {rel}</div>"
+                f"<a class=url href=\"{_e(t.get('open', t['url']))}\">{_e(t['url'])}</a><div class=meta>{_e(t['state'])} · {rel}</div>"
                 f"<div class=meta>{who} as {_e(t['default_tier'])}; shared with {g}</div></div>")
     tools = "".join(tool_card(t) for t in v["tools"]) or "<div class=card><h3>No tools yet</h3><div class=meta>Connect your agent, then say “put my tool online.” Your agent handles the setup and it appears here.</div></div>"
 
@@ -596,7 +569,7 @@ def account(v: dict) -> str:
         f"<tr><td>{_date(l['ts'])}</td><td>{_e(l['kind'])}</td><td class=num>{_money(l['amount_cents'])}</td><td class=num>{_money(l['balance_after'])}</td><td>{_e(l['memo'])}</td></tr>"
         for l in v["ledger"]) or "<tr><td colspan=5><small>No lines yet.</small></td></tr>"
 
-    return page(f"{v['name']}", f"""<h1>{_e(v['name'])} <span class=muted>{'is paused' if v['paused'] else 'workspace'}.</span></h1>
+    return page(f"{v['name']}", f"""<h1>{_e(v['name'])}</h1>
 <div class=row style="justify-content:space-between">{_switcher(v)}<span><small>Signed in as {_e(v['email'])}</small></span></div>
 {notice}{error}
 <div class=strip>
@@ -606,15 +579,15 @@ def account(v: dict) -> str:
 <div><b>{'yes' if v['card_on_file'] else 'no'}</b><span>card on file · auto-refill {refill}</span></div>
 </div>
 
-<h2>Tools</h2>
+<h2>Your apps</h2>
 <div class=cards>{tools}</div>
 
 <h2>Your agent</h2>
 <p>Connect your agent so it can work here for you. Get a connection code, click Copy connection, and paste into your agent’s chat.</p>
 <form class=add method=post action="{a}/token">{csrf}<input type=hidden name=name value="agent"><button>Get a connection code</button></form>
-<table><tr><th>Name</th><th>For</th><th>Works in</th><th>Made</th><th>Last used</th><th></th></tr>{keys}</table>
+<details><summary>Manage connected agents</summary><table><tr><th>Name</th><th>For</th><th>Works in</th><th>Made</th><th>Last used</th><th></th></tr>{keys}</table></details>
 
-<h2>Money</h2>
+<h2 id=billing>Hosting credit</h2>
 {_money_block(v, "account")}
 <div class=row style="margin-top:10px"><form class=inline method=post action="{a}/card">{csrf}<button class=s>{'Change the card' if v['card_on_file'] else 'Add a card'}</button></form></div>
 <details><summary>Last ten lines of the ledger</summary><table><tr><th>When (UTC)</th><th>What</th><th class=num>Amount</th><th class=num>Balance</th><th>Memo</th></tr>{led}</table></details>
@@ -635,8 +608,7 @@ def account(v: dict) -> str:
 <table><tr><th>Domain</th><th></th><th>Registrar</th><th>DNS</th></tr>{doms}</table>
 <p><small>A domain of your own is “buy us example.com” to your agent; it quotes the price and waits for your yes.</small></p>
 
-<h2>Another workspace</h2>
-<form class=add method=post action="/account/new-workspace">{csrf}<label>Workspace name<input name=workspace required placeholder="Acme Studio"></label><button class=s>Create</button></form>""",
+<details><summary>Add a separate business or team</summary><p>Keep its apps, people, and billing separate.</p><form class=add method=post action="/account/new-workspace">{csrf}<label>App or business name<input name=workspace required minlength=3 maxlength=80 placeholder="e.g. Oak Street Studio"></label><button class=s>Add business or team</button></form></details>""",
                 nav=f'<a href="https://{_e(v["base"])}/">Open the tools</a><a href="/docs">Docs</a><a href="/logout">Sign out</a>', wide=True)
 
 
@@ -710,4 +682,4 @@ def docs(md: str, platform: str) -> str:
 <p>To connect, get a connection code on your <a href="/account">account page</a>, click <strong>Copy connection</strong>, and paste into your agent’s chat. Your agent handles installation and checks the connection. Python 3.9 or newer is required on the agent’s machine.</p>
 {_md(md)}
 <p><small>Agents: fetch <a href="/skill.md">/skill.md</a> (the same text as markdown) or <a href="/llms.txt">/llms.txt</a>.</small></p>""",
-                nav='<a href="/#setup">How it works</a><a href="/account">My workspace</a><a class=btn href="/signup">Sign up</a>', wide=True)
+                nav='<a href="/#product">How it works</a><a href="/account">My apps</a><a class=btn href="/signup">Sign up</a>', wide=True)

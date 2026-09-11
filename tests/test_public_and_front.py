@@ -106,8 +106,8 @@ def test_money_from_the_page(setup, client):
     sid = auth.create_platform_session("owner@pub.test")
     P = {"host": PLAT}
     page = client.get("/welcome?ws=pub-co", headers=P, cookies={"bh_account": sid}).text
-    assert "We recommend $20 to start" in page and "cannot charge your card" in page and "Add a card" in page
-    assert "Two promises about money" in page and "Do you want your own domain name" in page and "with room for a domain" in page
+    assert "Start with $20" in page and "cannot charge your card" in page and "Add a payment method" in page
+    assert "Saving your card charges nothing" in page and "Domains and extra storage cost extra" in page
     from app import pages
     connect = pages._connect("platform.test", "bh_x", "BH-AAAA-BBBB-CCCC")
     assert "Copy connection" in connect and "Do not change agent security settings" in connect
@@ -120,7 +120,7 @@ def test_money_from_the_page(setup, client):
     assert r.status_code == 303 and r.headers["location"] == "/welcome?ws=pub-co&refill=on"
     assert db.workspace("pub-co")["autorefill_cents"] == 2000 and db.workspace("pub-co")["autorefill_cap_cents"] == 10000
     page = client.get("/welcome?ws=pub-co&refill=on", headers=P, cookies={"bh_account": sid}).text
-    assert "Auto-refill is on" in page and "Put $20 on the balance" in page and "Turn auto-refill off" in page
+    assert "Auto-refill adds" in page and "Add $20 hosting credit" in page and "Turn auto-refill off" in page
     r = client.post("/account/pub-co/autorefill", headers=P, cookies={"bh_account": sid}, data={"csrf": csrf, "dollars": "0", "cap": "0"})
     assert r.headers["location"] == "/account?ws=pub-co&refill=off" and db.workspace("pub-co")["autorefill_cents"] == 0
 
