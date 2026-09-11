@@ -271,8 +271,8 @@ def needs_invite(user) -> bool:
     return user is not None and not has_password(user["email"])
 
 
-def signup_token(workspace: str, email: str, code: str) -> str:
-    return encrypt(json.dumps({"signup": True, "workspace": workspace, "email": email, "code": code, "exp": time.time() + 3600}))
+def signup_token(workspace: str, email: str, code: str, purpose: str = "") -> str:
+    return encrypt(json.dumps({"signup": True, "workspace": workspace, "email": email, "code": code, "purpose": purpose, "exp": time.time() + 3600}))
 
 
 def signup_details(token: str) -> dict | None:

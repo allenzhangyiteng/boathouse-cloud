@@ -230,7 +230,7 @@ def main():
     (OUT / "index.html").write_text(index_page(posts))
     # Omit dates when we cannot determine a real content modification date.
     # Rebuilding unchanged pages must not pretend they have fresh content.
-    urls = [(HOST + path, None) for path in ("/", "/demo", "/docs", "/security", "/privacy", "/terms")]
+    urls = [(HOST + path, None) for path in ("/", "/demo", "/docs", "/partners", "/security", "/privacy", "/terms")]
     urls.append((HOST + "/blog", max((p.get("updated") or p["date"] for p in posts), default=None)))
     urls += [(f"{HOST}/blog/{p['slug']}", p.get("updated") or p["date"]) for p in posts]
     sm = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'

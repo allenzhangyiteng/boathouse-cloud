@@ -58,7 +58,7 @@ def price_sheet() -> dict:
                       f"domains at registrar cost plus ${PRICES['domain_margin']/100:.2f} per year, always quoted first",
                       "stopped tools cost nothing; data is kept", "at zero balance tools pause; nothing is deleted",
                       "sign up with someone's referral code: every tool is half price for your first 60 days",
-                      "give your code to others: 10% of what they pay for usage is yours, in cash, every month, for as long as they pay"]}
+                      "give your code or QR to others: 10% of paid hosting usage for the customer's lifetime; monthly payouts, $10 minimum (smaller balances roll over)"]}
 
 
 # ---- ledger --------------------------------------------------------------------
@@ -87,6 +87,7 @@ def post(workspace_id: str, kind: str, amount_cents: int, memo: str, ref: str | 
             c.execute("UPDATE workspaces SET balance_cents=? WHERE id=?", (new, workspace_id))
             c.execute("INSERT INTO ledger (id, workspace_id, ts, kind, amount_cents, balance_after, memo, ref, created_by) VALUES (?,?,?,?,?,?,?,?,?)",
                       (db.new_id("l"), workspace_id, time.time(), kind, amount_cents, new, memo, ref, by))
+            referrals.sync(c, workspace_id)
             c.execute("COMMIT")
         except Exception:
             c.execute("ROLLBACK")
@@ -176,8 +177,8 @@ def meter_once(today: str | None = None) -> list[dict]:
                 memo = f"{t['slug']}: running day {today}" + (" (half price)" if monthly_rate(ws, date) < PRICES["tool_month"] else "") + (f", {gb:.2f} GB" if storage else "")
                 c.execute("INSERT INTO ledger VALUES(?,?,?,?,?,?,?,?,?)", (db.new_id("l"),ws["id"],time.time(),"charge",-amount,bal,memo,ref,"meter"))
                 c.execute("UPDATE storage_accrual SET byte_cent_days=?,charged_cents=? WHERE workspace_id=? AND resource_key=? AND month=?", (numerator,total_storage_cents,*key))
+                referrals.sync(c, ws['id'])
                 c.execute("COMMIT")
-            referrals.earn(ws, amount, ref)
             lines.append({"workspace": ws["slug"], "tool": t["slug"], "cents": amount, "gb": round(gb, 3)})
         _settle(ws)
     return lines
@@ -331,6 +332,16 @@ def handle_webhook(payload: bytes, sig_header: str) -> dict:
         raise StripeError("bad webhook signature")
     event = json.loads(payload)
     obj = event.get("data", {}).get("object", {})
+    if event.get('type') in ('charge.refunded','refund.created','refund.updated','refund.failed',
+                              'charge.dispute.created','charge.dispute.updated','charge.dispute.closed',
+                              'charge.dispute.funds_withdrawn','charge.dispute.funds_reinstated'):
+        from . import payment_returns
+        provider_id = obj.get('payment_intent')
+        if not provider_id and obj.get('charge'):
+            charge = _stripe('GET',f"/charges/{obj['charge']}")
+            provider_id = charge.get('payment_intent')
+        if provider_id:
+            return payment_returns.reconcile(provider_id)
     if event.get("type") == "payment_intent.succeeded":
         opid = (obj.get("metadata") or {}).get("boathouse_operation")
         with db.conn() as c:
@@ -460,6 +471,7 @@ def _complete_payment(op, pi):
                       (db.new_id("l"), op["workspace_id"], time.time(), "topup", op["cents"], bal, memo, ref, op["created_by"]))
         c.execute("UPDATE payment_operations SET status='succeeded',provider_id=?,updated=?,error=NULL WHERE id=?",
                   (pi["id"], time.time(), op["id"]))
+        referrals.sync(c, op['workspace_id'])
         # Checkout collected consent to save this card, but auto-refill stays off
         # unless the owner separately enables it with a monthly cap.
         if current["checkout_payload"] and pi.get("payment_method"):

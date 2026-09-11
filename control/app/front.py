@@ -90,14 +90,16 @@ def landing(request: Request):
 
 @router.get("/signup")
 @router.get("/start")
-def start(request: Request, code: str | None = None, workspace: str = ""):
+def start(request: Request, code: str | None = None, workspace: str = "", partner: bool = False):
     """The sign-up form. Someone already signed in gets their workspaces and a way to make another."""
     if not _platform(request):
         return HTMLResponse(pages.unknown(_main()._host(request)), 404)
     email = _email(request)
+    if email and partner:
+        return RedirectResponse('/partners', 303)
     if email:
         return HTMLResponse(pages.start_signed_in(email, auth.memberships(email), auth.csrf_token(CSRF), workspace, code or ""))
-    return HTMLResponse(pages.signup(config.PLATFORM_DOMAIN, auth.csrf_token("signup"), name=workspace, code=code or ""))
+    return HTMLResponse(pages.signup(config.PLATFORM_DOMAIN, auth.csrf_token("signup"), name=workspace, code=code or "", partner=partner))
 
 
 @router.get("/blog")
@@ -334,7 +336,7 @@ def llms_txt(request: Request):
 
 
 @router.post("/signup")
-def signup(request: Request, workspace: str = Form(""), email: str = Form(""), password: str = Form(""), csrf: str = Form(""), code: str = Form("")):
+def signup(request: Request, workspace: str = Form(""), email: str = Form(""), password: str = Form(""), csrf: str = Form(""), code: str = Form(""), partner: bool = Form(False)):
     """Confirm the mailbox before an email receives account-wide authority."""
     M = _main()
     if not _platform(request):
@@ -342,7 +344,7 @@ def signup(request: Request, workspace: str = Form(""), email: str = Form(""), p
     workspace, email = workspace.strip(), email.strip().lower()
 
     def again(msg: str, status: int = 400):
-        return HTMLResponse(pages.signup(config.PLATFORM_DOMAIN, auth.csrf_token("signup"), msg, workspace, email, code), status)
+        return HTMLResponse(pages.signup(config.PLATFORM_DOMAIN, auth.csrf_token("signup"), msg, workspace, email, code, partner=partner), status)
 
     if not auth.csrf_ok(csrf, "signup"):
         return again("That form had expired, or its token did not match (a copy from another tab?). Load the page again and retry.")
@@ -350,6 +352,8 @@ def signup(request: Request, workspace: str = Form(""), email: str = Form(""), p
     if auth.throttle(key, limit=5, window=3600):
         return again("Too many signup attempts from this address. Please try again in an hour.", 429)
     if auth.has_password(email):
+        if partner:
+            return RedirectResponse('/login?next=%2Fpartners', 303)
         # an existing Boathouse account: the password must be theirs
         if not password:
             return _resume_signup(workspace, code)
@@ -366,7 +370,7 @@ def signup(request: Request, workspace: str = Form(""), email: str = Form(""), p
             return again("Please wait fifteen minutes before requesting another confirmation email.", 429)
         auth.record_attempt(key)
         auth.record_attempt(email_limit)
-        token = auth.signup_token(workspace, email, code)
+        token = auth.signup_token(workspace, email, code, purpose='partner' if partner else '')
         url = f"https://{config.PLATFORM_DOMAIN}/verify-email/{token}"
         sent = mail.send(email, "Confirm your email for Boat House",
                          f"Confirm your email to create your Boat House account for {workspace}. Open this link and choose your password:\n\n{url}\n\n"
@@ -395,6 +399,8 @@ def verify_signup_form(token: str, request: Request):
     if not pending:
         return HTMLResponse(pages.signup_expired(), 410)
     if auth.has_password(pending["email"]):
+        if pending.get('purpose') == 'partner':
+            return RedirectResponse('/login?next=%2Fpartners', 303)
         return _resume_signup(pending["workspace"], pending["code"])
     return HTMLResponse(pages.verify_signup(pending["email"], pending["workspace"], auth.csrf_token("verify-email")))
 
@@ -407,6 +413,8 @@ def verify_signup_submit(token: str, request: Request, password: str = Form(""),
     if not pending:
         return HTMLResponse(pages.signup_expired(), 410)
     if auth.has_password(pending["email"]):
+        if pending.get('purpose') == 'partner':
+            return RedirectResponse('/login?next=%2Fpartners', 303)
         return _resume_signup(pending["workspace"], pending["code"])
     problem = "This form expired. Please try again." if not auth.csrf_ok(csrf, "verify-email") else (
         auth.password_problem(password) or ("The two passwords differ." if password != password2 else None))
@@ -415,7 +423,9 @@ def verify_signup_submit(token: str, request: Request, password: str = Form(""),
     try:
         made = _main().create_workspace(pending["workspace"], pending["email"], password=password, code=pending["code"], signup_proof=token)
     except HTTPException as e:
-        return HTMLResponse(pages.signup(config.PLATFORM_DOMAIN, auth.csrf_token("signup"), _detail(e), pending["workspace"], pending["email"], pending["code"]), e.status_code)
+        return HTMLResponse(pages.signup(config.PLATFORM_DOMAIN, auth.csrf_token("signup"), _detail(e), pending["workspace"], pending["email"], pending["code"], partner=pending.get('purpose') == 'partner'), e.status_code)
+    if pending.get('purpose') == 'partner':
+        return _signed_in(pending['email'], '/partners')
     return _to_welcome(pending["email"], made["workspace"])
 
 

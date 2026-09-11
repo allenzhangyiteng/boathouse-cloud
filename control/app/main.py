@@ -25,6 +25,10 @@ from . import checkout, resources, auth, billing, config, db, deploy, domain_pay
 from .hosts import RESERVED
 
 app = FastAPI(title="Boathouse", docs_url=None, redoc_url=None)
+@app.exception_handler(referrals.ReferralError)
+async def referral_error(request, exc):
+    from fastapi.responses import JSONResponse
+    return JSONResponse({'detail':str(exc)}, status_code=422)
 @app.exception_handler(resources.ResourceError)
 async def resource_error(request,exc):
     from fastapi.responses import JSONResponse
@@ -1255,11 +1259,22 @@ def referral_payouts(request: Request, authorization: str | None = Header(None))
 def referral_mark_paid(email: str, request: Request, body: dict, authorization: str | None = Header(None)):
     u = _actor(request, authorization)
     _require_host_owner(u)
-    ref = (body.get("ref") or "").strip()
-    if not ref:
+    ref = body.get("ref")
+    if not isinstance(ref,str) or not ref.strip():
         raise HTTPException(422, "say how it was paid: {\"ref\": \"PayPal 2026-10-01\"}")
-    cents = referrals.mark_paid(email, ref, u["email"])
+    ref = ref.strip()
+    cents = referrals.mark_paid(email, ref, u["email"], body.get('payout_id'), body.get('cents'))
     return {"email": email.lower(), "paid_cents": cents, "ref": ref}
+
+
+@app.post('/api/referral/payouts')
+def referral_prepare_payout(request: Request, body: dict, authorization: str | None = Header(None)):
+    u = _actor(request, authorization)
+    _require_host_owner(u)
+    email = body.get('email')
+    if not isinstance(email,str) or '@' not in email:
+        raise HTTPException(422,'Supply the partner email.')
+    return referrals.prepare_payout(email,u['email'])
 
 
 @app.post("/api/access-requests")
@@ -1793,8 +1808,14 @@ def create_workspace(name: str, email: str, by: str | None = None, password: str
             spent = c.execute("INSERT OR IGNORE INTO used_tokens (hash, expires) VALUES (?,?)", (auth._token_hash(signup_proof), proof["exp"]))
             if spent.rowcount != 1:
                 raise HTTPException(410, "This confirmation link was already used. Sign in to your account.")
+        try:
+            referral = referrals.attribution(c,email,code,now)
+        except referrals.ReferralError as e:
+            raise HTTPException(422,str(e))
+        referrer = referral['referrer_email'] if referral else None
+        discount_until = referral['discount_until'] if referral else None
         wid = db.new_id("ws")
-        c.execute("INSERT INTO workspaces (id, slug, name, created, owner_email) VALUES (?,?,?,?,?)", (wid, slug, name.strip()[:80] or slug, now, email))
+        c.execute("INSERT INTO workspaces (id, slug, name, created, owner_email, referred_by, discount_until) VALUES (?,?,?,?,?,?,?)", (wid, slug, name.strip()[:80] or slug, now, email,referrer,discount_until))
         c.execute("INSERT INTO users (id, workspace_id, email, name, role, created, created_by) VALUES (?,?,?,?,?,?,?)",
                   (db.new_id("u"), wid, email, None, "owner", now, by or "signup"))
         if pw_hash:
@@ -1807,8 +1828,7 @@ def create_workspace(name: str, email: str, by: str | None = None, password: str
     if config.TRIAL_CREDIT_CENTS:
         billing.post(wid, "grant", config.TRIAL_CREDIT_CENTS, "welcome credit", f"welcome:{wid}", "signup")
     if referrer:
-        referrals.attach(wid, referrer, now)
-        db.audit(by or email, "referral.used", slug, {"code": code.strip().upper(), "referrer": referrer}, wid)
+        db.audit(by or email, "referral.used", slug, {"code": referral['code'], "referrer": referrer}, wid)
     dns = None
     if registrar.creds() and config.PUBLIC_IP:
         try:
@@ -1821,7 +1841,7 @@ def create_workspace(name: str, email: str, by: str | None = None, password: str
             "invite_url": _invite_url(ws, token) if token else None, "invite_expires_days": config.INVITE_DAYS if token else None,
             "account": f"https://{config.PLATFORM_DOMAIN}/account?ws={slug}",
             "welcome_credit_cents": config.TRIAL_CREDIT_CENTS, "dns": dns,
-            "referred_by": referrer, "discount_until": (now + referrals.DISCOUNT_DAYS * 86400) if referrer else None}
+            "referred_by": referrer, "discount_until": discount_until}
 
 
 @app.post("/api/claim")
@@ -2122,4 +2142,6 @@ def health():
 # Both are routers so they can be built and tested apart from this file.
 from . import front, mcp  # noqa: E402
 app.include_router(front.router)
+from . import partners_front
+app.include_router(partners_front.router)
 app.include_router(mcp.router)

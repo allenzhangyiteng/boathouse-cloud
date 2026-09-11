@@ -73,6 +73,24 @@ CREATE TABLE IF NOT EXISTS referral_earnings (
   id TEXT PRIMARY KEY, referrer_email TEXT NOT NULL, workspace_id TEXT NOT NULL, cents INTEGER NOT NULL,
   ledger_ref TEXT UNIQUE NOT NULL, created REAL NOT NULL, paid_at REAL, payout_ref TEXT);
 CREATE INDEX IF NOT EXISTS referral_earnings_by ON referral_earnings(referrer_email, paid_at);
+CREATE TABLE IF NOT EXISTS referral_customers (
+  email TEXT PRIMARY KEY, referrer_email TEXT NOT NULL, code TEXT NOT NULL,
+  created REAL NOT NULL, discount_until REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS referral_program (
+  id INTEGER PRIMARY KEY CHECK(id=1), start_rowid INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS referral_revenue (
+  workspace_id TEXT PRIMARY KEY, referrer_email TEXT NOT NULL,
+  basis_cents INTEGER NOT NULL DEFAULT 0, revision INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS referral_payouts (
+  id TEXT PRIMARY KEY, email TEXT NOT NULL, cents INTEGER NOT NULL CHECK(cents>0),
+  status TEXT NOT NULL CHECK(status IN ('prepared','paid','cancelled')),
+  created REAL NOT NULL, created_by TEXT NOT NULL, paid_at REAL, paid_by TEXT,
+  payout_ref TEXT UNIQUE);
+CREATE UNIQUE INDEX IF NOT EXISTS referral_payout_pending ON referral_payouts(email) WHERE status='prepared';
+CREATE TABLE IF NOT EXISTS payment_returns (
+  provider_id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL,
+  refunded_cents INTEGER NOT NULL DEFAULT 0, disputed_cents INTEGER NOT NULL DEFAULT 0,
+  held_cents INTEGER NOT NULL DEFAULT 0, updated REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS ledger (
   id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, ts REAL NOT NULL, kind TEXT NOT NULL,
   amount_cents INTEGER NOT NULL, balance_after INTEGER NOT NULL, memo TEXT, ref TEXT UNIQUE, created_by TEXT);
@@ -247,6 +265,17 @@ def init():
                 c.execute(ddl)
         _migrate_resources(c)
         _backfill(c)
+        # Preserve old accrued/paid commissions. The new engine only adds new
+        # usage when an installation already has historical earnings.
+        legacy = c.execute("SELECT 1 FROM referral_earnings LIMIT 1").fetchone()
+        boundary = c.execute("SELECT COALESCE(MAX(rowid),0) FROM ledger").fetchone()[0] if legacy else 0
+        c.execute("INSERT OR IGNORE INTO referral_program VALUES(1,?)", (boundary,))
+        for r in c.execute("SELECT w.owner_email,w.referred_by,w.created,w.discount_until,r.code "
+                           "FROM workspaces w JOIN referral_codes r ON r.email=w.referred_by "
+                           "WHERE w.owner_email IS NOT NULL ORDER BY w.created,w.id").fetchall():
+            if r['owner_email'].lower() != r['referred_by'].lower():
+                c.execute("INSERT OR IGNORE INTO referral_customers VALUES(?,?,?,?,?)",
+                          (r['owner_email'].lower(),r['referred_by'].lower(),r['code'],r['created'],r['discount_until'] or r['created']))
         ws = c.execute("SELECT id FROM workspaces WHERE slug=?", (config.WORKSPACE_SLUG,)).fetchone()
         if not ws:
             wid = new_id("ws")

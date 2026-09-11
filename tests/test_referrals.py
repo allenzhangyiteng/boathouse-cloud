@@ -28,7 +28,7 @@ def test_no_welcome_credit_and_a_code_at_signup(client):
     maria = main.create_workspace("Maria Ref", "maria-ref@fixture.test")
     assert billing.balance(db.workspace("maria-ref")["id"]) == 0 and maria["welcome_credit_cents"] == 0
     code = referrals.code_for("maria-ref@fixture.test")
-    assert code.startswith("MARIAR-") and referrals.code_for("maria-ref@fixture.test") == code           # stable, six letters of the name
+    assert code.startswith("BH-") and referrals.code_for("maria-ref@fixture.test") == code  # stable, no email fragment
     with pytest.raises(Exception) as e:
         main.create_workspace("Self Ref", "maria-ref@fixture.test", code=code)
     assert "your own code" in str(e.value.detail)
@@ -51,7 +51,9 @@ def test_a_deploy_on_an_empty_balance_is_refused(client):
 
 def test_metering_halves_the_rate_and_pays_the_referrer(client, monkeypatch):
     ws = db.workspace("sam-ref")
-    billing.post(ws["id"], "topup", 2000, "test money", "t:sam-ref", "test")
+    with db.conn() as c:
+        op = billing._new_payment(c,ws,2000,'test')
+    billing._complete_payment(op,{'id':'pi_ref_synthetic','amount':2000,'amount_received':2000,'currency':'usd','customer':None,'status':'succeeded','metadata':{'boathouse_operation':op['id']}})
     with db.conn() as c:
         c.execute("INSERT INTO tools (id, workspace_id, slug, name, signing_key, db_password, created, created_by) VALUES (?,?,?,?,?,?,?,?)",
                   ("t_ref", ws["id"], "hello", "Hello", "k", "pw", time.time(), "sam-ref@fixture.test"))
@@ -64,20 +66,20 @@ def test_metering_halves_the_rate_and_pays_the_referrer(client, monkeypatch):
     assert mine == [{"workspace": "sam-ref", "tool": "hello", "cents": 16, "gb": 0.0}]
     assert billing.balance(ws["id"]) == 2000 - 16
     s = referrals.summary("maria-ref@fixture.test")
-    assert s["earned_cents"] == 2 and s["unpaid_cents"] == 2 and s["referred"][0]["workspace"] == "sam-ref"
+    assert s["earned_cents"] == 1 and s["unpaid_cents"] == 1 and s["referred"][0]["workspace"] == "Customer workspace 1"
     billing.meter_once("2026-09-10")                                                                # same day twice: nothing doubles
-    assert billing.balance(ws["id"]) == 2000 - 16 and referrals.summary("maria-ref@fixture.test")["earned_cents"] == 2
+    assert billing.balance(ws["id"]) == 2000 - 16 and referrals.summary("maria-ref@fixture.test")["earned_cents"] == 1
     with db.conn() as c:                                                                            # after the sixty days: full rate, referrer still earns
         c.execute("UPDATE workspaces SET discount_until=? WHERE id=?", (time.time() - 1, ws["id"]))
     billing.meter_once("2026-11-20")
-    assert billing.balance(ws["id"]) == 2000 - 16 - 33 and referrals.summary("maria-ref@fixture.test")["earned_cents"] == 2 + 3
+    assert billing.balance(ws["id"]) == 2000 - 16 - 33 and referrals.summary("maria-ref@fixture.test")["earned_cents"] == 4
 
 
 def test_referral_api_and_payouts(client):
     ws = db.workspace("maria-ref")
     mk = auth.create_project_key(ws["id"], "maria-ref@fixture.test", "k")
     r = client.get("/api/referral", headers={**API, "Authorization": f"Bearer {mk}"}).json()
-    assert r["code"] == referrals.code_for("maria-ref@fixture.test") and r["link"].endswith(f"/signup?code={r['code']}") and r["unpaid_cents"] == 5
+    assert r["code"] == referrals.code_for("maria-ref@fixture.test") and r["link"].endswith(f"/signup?code={r['code']}") and r["unpaid_cents"] == 4
     from app import config
     if not db.workspace(config.HOST_WORKSPACE):
         main.create_workspace(config.HOST_WORKSPACE.title(), "owner@starter.test")
@@ -85,11 +87,10 @@ def test_referral_api_and_payouts(client):
     h = {**API, "Authorization": f"Bearer {hk}"}
     assert client.get("/api/referral/payouts", headers={**API, "Authorization": f"Bearer {mk}"}).status_code == 403
     owed = client.get("/api/referral/payouts", headers=h).json()["payouts"]
-    assert [o["email"] for o in owed] == ["maria-ref@fixture.test"] and owed[0]["unpaid_cents"] == 5
+    assert [o["email"] for o in owed] == ["maria-ref@fixture.test"] and owed[0]["unpaid_cents"] == 4
     r = client.post("/api/referral/payouts/maria-ref@fixture.test", headers=h, json={"ref": "PayPal 2026-10-01"})
-    assert r.status_code == 200 and r.json()["paid_cents"] == 5
-    assert client.get("/api/referral/payouts", headers=h).json()["payouts"] == []
-    assert client.get("/api/referral", headers={**API, "Authorization": f"Bearer {mk}"}).json()["unpaid_cents"] == 0
+    assert r.status_code == 422  # cannot mark a moving total paid without a prepared amount
+    assert client.get("/api/referral", headers={**API, "Authorization": f"Bearer {mk}"}).json()["unpaid_cents"] == 4
 
 
 def test_signup_page_takes_a_code_and_says_so(client):

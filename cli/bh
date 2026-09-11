@@ -984,19 +984,27 @@ def cmd_referral(a):
             print("nothing owed to anyone right now."); return
         for r in rows:
             print(f"  {r['email']:<36} ${r['unpaid_cents']/100:>8.2f}   from {r['workspaces']} workspace(s)")
-        print("after paying someone: bh referral paid <email> --ref 'PayPal 2026-10-01'")
+        print("prepare first: bh referral prepare <email>. Transfer the exact amount, then record its payout ID, cents and transfer reference.")
+        return
+    if a.action == "prepare":
+        if not a.email:
+            die("usage: bh referral prepare <email>")
+        r = call("POST", "/api/referral/payouts", body={"email": a.email})
+        print(f"Prepared {r['id']}: transfer ${r['cents']/100:.2f} to {r['email']} through the agreed method. No money has been sent.")
+        print(f"After transfer: bh referral paid {r['email']} --payout-id {r['id']} --cents {r['cents']} --ref '<completed transfer reference>'")
         return
     if a.action == "paid":
-        if not a.email or not a.ref:
-            die("usage: bh referral paid <email> --ref 'how and when it was paid'")
-        r = call("POST", f"/api/referral/payouts/{a.email}", body={"ref": a.ref})
+        if not a.email or not a.ref or not a.payout_id or not a.cents:
+            die("usage: bh referral paid <email> --payout-id ID --cents AMOUNT --ref 'completed transfer reference'")
+        r = call("POST", f"/api/referral/payouts/{a.email}", body={"ref": a.ref, "payout_id": a.payout_id, "cents": a.cents})
         print(f"marked ${r['paid_cents']/100:.2f} as paid to {r['email']} ({r['ref']})"); return
     r = call("GET", "/api/referral")
     print(f"your code: {r['code']}    link: {r['link']}")
+    print(f"QR: {r['qr_url']}    dashboard: {r['dashboard']}")
     print(f"the deal: {r['terms']}")
     if r["referred"]:
         for x in r["referred"]:
-            print(f"  {x['name']:<28} since {time.strftime('%Y-%m-%d', time.gmtime(x['since']))}   earned you ${x['earned_cents']/100:.2f}   unpaid ${x['unpaid_cents']/100:.2f}")
+            print(f"  {x['name']:<28} since {time.strftime('%Y-%m-%d', time.gmtime(x['since']))}   earned you ${x['earned_cents']/100:.2f}")
         print(f"total earned ${r['earned_cents']/100:.2f}, not yet paid out ${r['unpaid_cents']/100:.2f} (paid monthly, in cash)")
     else:
         print("nobody has signed up with it yet.")
@@ -1157,7 +1165,7 @@ def main():
     s = sp.add_parser("users"); s.add_argument("action", nargs="?", choices=["ls", "add", "rm", "invite"], default="ls"); s.add_argument("email", nargs="?"); s.add_argument("--role", default="member"); s.set_defaults(f=cmd_users)
     s = sp.add_parser("domain"); s.add_argument("action", choices=["ls", "check", "buy", "attach", "dns", "repoint", "primary", "point", "detach", "free", "platform"]); s.add_argument("name", nargs="?"); s.add_argument("--yes", action="store_true"); s.add_argument("--quote-id", help="reuse a prior quote when confirming or retrying"); s.add_argument("--max-cost-cents", type=int, help="maximum approved domain price, including Boathouse's margin"); s.add_argument("--to", help="tool that should answer at the domain itself (apex and www)"); s.set_defaults(f=cmd_domain)
     s = sp.add_parser("prices"); s.set_defaults(f=cmd_prices)
-    s = sp.add_parser("referral"); s.add_argument("action", nargs="?", choices=["show", "payouts", "paid"], default="show"); s.add_argument("email", nargs="?"); s.add_argument("--ref"); s.set_defaults(f=cmd_referral)
+    s = sp.add_parser("referral"); s.add_argument("action", nargs="?", choices=["show", "payouts", "prepare", "paid"], default="show"); s.add_argument("email", nargs="?"); s.add_argument("--ref"); s.add_argument("--payout-id"); s.add_argument("--cents", type=int); s.set_defaults(f=cmd_referral)
     s = sp.add_parser("billing"); s.add_argument("action", nargs="?", choices=["status", "card", "topup", "autorefill", "grant", "stripe-keys", "meter"], default="status"); s.add_argument("arg1", nargs="?"); s.add_argument("arg2", nargs="?"); s.add_argument("--yes", action="store_true"); s.add_argument("--cap"); s.add_argument("--memo"); s.set_defaults(f=cmd_billing)
     s = sp.add_parser("registrar"); s.add_argument("action", choices=["status", "connect", "wait", "keys"]); s.add_argument("--sandbox", action="store_true"); s.set_defaults(f=cmd_registrar)
     s = sp.add_parser("keys"); s.add_argument("action", nargs="?", choices=["ls", "create", "revoke"], default="ls"); s.add_argument("key_id", nargs="?"); s.add_argument("--name", default="cli"); s.add_argument("--for", dest="for_email"); s.set_defaults(f=cmd_keys)

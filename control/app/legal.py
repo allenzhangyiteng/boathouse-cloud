@@ -37,7 +37,13 @@ Do not use the Service to break the law, to host malware, phishing, spam, or scr
 
 ## 7. Referrals
 
-Every person has a referral code. If a new workspace is created with your code, you earn 10% of what that workspace pays us for usage (tool-months and storage), for as long as it pays, and the new workspace pays half the tool rate for its first 60 days. We tally earnings per charge and pay them in cash once a month, by a method we agree with you; amounts under $10 roll over to the next month. You may not refer yourself, buy or sell codes, or use the program in ways that mislead people. Earnings are income to you; taxes are yours to handle, and we may ask for the details the law requires before paying. We may change or end the program with 30 days' notice; earnings already tallied are still paid.
+Joining the partner program is free. Your dashboard at `/partners` provides your referral link, QR code, and signup code. A new customer must use your code when creating their first account/workspace. The first valid referral remains attached to that customer account, including future apps and workspaces it owns; it cannot be replaced with another partner's code. Self-referrals are not eligible.
+
+You earn **10% of that customer's paid hosting and storage usage for their lifetime**, for as long as they keep using and paying for Boat House. The customer receives half-price app hosting for their first 60 days; adding another workspace does not restart that period. Commissions are based on actual usage paid with verified customer funds after discounts, not unused prepaid deposits. Free/promotional credit, domain purchases, taxes, refunds, and disputed payments do not earn commission. Fractional cents carry forward across your referred customers. Refunds or disputes reverse the related earnings; if those earnings were already paid, the adjustment carries forward against future commissions.
+
+We review cash payouts monthly, by a transfer method agreed with you. Amounts below $10 roll over. The dashboard tracks earnings and completed transfers; it does not automatically send money. Contact support from your partner account email to arrange your payout method. Do not email bank details. We may request identity and tax information through an appropriate secure channel before paying; you are responsible for taxes on your earnings.
+
+Disclose your financial relationship clearly when recommending Boat House. Do not mislead people, spam, buy or sell codes, create fake customer accounts, or bypass attribution rules. We may withhold or reverse fraudulent commissions. Changes to the rate or the end of enrollment apply only to future referrals after at least 30 days' notice: existing eligible referrals retain their 10% lifetime share. Earned legitimate commissions remain payable.
 
 ## 8. Domain names
 
@@ -74,7 +80,7 @@ PRIVACY = f"""
 ## What we collect
 
 - **Account.** Email address, a hashed password, your workspace names, the keys your agent uses (stored hashed), and when you last signed in.
-- **Referrals.** Your referral code, which workspaces used it, and the earnings we owe and have paid you, with the payout reference.
+- **Referrals.** Your referral code, customer-account attribution, and the earnings we owe and have paid you, with the payout reference. Partners see anonymized referral counts and earnings, not customer names, email addresses, private apps, or app data. Codes and QR images are public so partners can share them.
 - **Money.** A Stripe customer ID and the last four digits and brand of your card, so you can recognise it. Stripe holds the card itself. Your balance and a ledger of every charge and top-up.
 - **Your tools.** The source code, database, files and settings of each tool, and its nightly backups. This may include personal data about the people who use the tool; you decide what goes in.
 - **People you share with.** Their email address, the level you gave them, and their own hashed password once they set one.
