@@ -204,7 +204,7 @@ main:focus { outline: none; }
 .demo-transcript-body p + p { margin-top: 15px; }
 .demo-page .closing { padding-top: 70px; }
 
-/* A single, short handoff. No continuous animation or moving background. */
+/* Product arrival and feedback for user-selected access roles. */
 @keyframes app-arrive { from { opacity: .2; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes access-update { from { opacity: .4; } to { opacity: 1; } }
 @media (prefers-reduced-motion: no-preference) {
@@ -429,4 +429,70 @@ main:focus { outline: none; }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *:before, *:after { animation: none !important; transition: none !important; }
+}
+
+/* A small, continuous illustration of the app, its data, and its people. */
+.hero-motion { max-width: 620px; margin: 27px auto 0; }
+.motion-scene { height: 106px; position: relative; isolation: isolate; }
+.motion-connections { position: absolute; inset: 0; width: 100%; height: 100%; z-index: -1; overflow: visible; }
+.connection-track { stroke: #d4e0eb; stroke-width: 1.2; }
+.connection-flow { stroke: #8daed3; stroke-width: 2; stroke-linecap: round; stroke-dasharray: 14 115; }
+.floating-tile { position: absolute; display: flex; align-items: center; justify-content: center; gap: 10px; height: 57px; padding: 0 17px; background: #fff; border: 1px solid #dce5ec; border-radius: 10px; box-shadow: 0 6px 16px #203e5c09; font-size: 13px; color: #354b5a; white-space: nowrap; }
+.tile-app { left: 3%; top: 16px; }
+.tile-data { left: 50%; top: 31px; transform: translateX(-50%); }
+.tile-team { right: 3%; top: 9px; }
+.tile-icon { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 7px; background: #f1f5fa; color: #6689b5; }
+.tile-icon svg { stroke: currentColor; stroke-width: 1.3; }
+.tile-status { width: 5px; height: 5px; border-radius: 50%; background: #83a890; margin-left: 3px; }
+.tile-people { display: flex; padding-left: 4px; }
+.tile-people > span { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; border: 2px solid #fff; background: #e3edfa; color: #59748f; margin-left: -4px; font-size: 9px; }
+.tile-people > span + span { background: #eae9e1; color: #7b7763; }
+.motion-controls { display: flex; justify-content: center; height: 25px; }
+.motion-toggle { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; color: var(--muted); padding: 4px 7px; min-height: 25px; font-size: 10px; border-radius: 3px; }
+.motion-toggle[hidden] { display: none; }
+.motion-toggle:hover { color: var(--blue); background: #f4f7fb; }
+.motion-toggle svg { stroke: currentColor; stroke-width: 1.2; }
+.motion-toggle .play-symbol { display: none; fill: currentColor; stroke: none; }
+.motion-paused .motion-toggle .pause-symbol { display: none; }
+.motion-paused .motion-toggle .play-symbol { display: block; }
+.hero-motion + .product-example { margin-top: 29px; }
+@keyframes float-app { 0%,100% { transform: translate3d(0,0,0); } 50% { transform: translate3d(3px,-9px,0); } }
+@keyframes float-data { 0%,100% { transform: translate3d(-50%,0,0); } 50% { transform: translate3d(calc(-50% - 2px),-8px,0); } }
+@keyframes float-team { 0%,100% { transform: translate3d(0,0,0); } 50% { transform: translate3d(-3px,8px,0); } }
+@keyframes connection-travel { to { stroke-dashoffset: -129; } }
+@media (prefers-reduced-motion: no-preference) {
+  .motion-ready .tile-app { animation: float-app 6s -1s ease-in-out infinite; }
+  .motion-ready .tile-data { animation: float-data 7s -.5s ease-in-out infinite; }
+  .motion-ready .tile-team { animation: float-team 8s -2s ease-in-out infinite; }
+  .motion-ready .connection-flow { animation: connection-travel 4.5s linear infinite; }
+  .motion-ready.motion-paused .floating-tile,
+  .motion-ready.motion-paused .connection-flow,
+  .motion-ready.motion-offscreen .floating-tile,
+  .motion-ready.motion-offscreen .connection-flow,
+  .motion-ready.motion-background .floating-tile,
+  .motion-ready.motion-background .connection-flow { animation-play-state: paused; }
+}
+@media (max-width: 640px) {
+  .hero-motion { margin-top: 26px; }
+  .motion-scene { height: 94px; }
+  .floating-tile { width: calc((100% - 20px) / 3); gap: 5px; height: 49px; padding-inline: 6px; font-size: 11px; border-radius: 8px; }
+  .tile-app { left: 0; top: 10px; }
+  .tile-data { top: 31px; }
+  .tile-team { right: 0; top: 3px; }
+  .tile-icon { width: 23px; height: 25px; border-radius: 5px; }
+  .tile-icon svg { width: 16px; height: 16px; }
+  .tile-status { display: none; }
+  .tile-people > span { width: 20px; height: 20px; font-size: 7px; }
+  .motion-controls { height: 29px; }
+  .motion-toggle { min-height: 29px; font-size: 10px; }
+  .hero-motion + .product-example { margin-top: 21px; }
+}
+@media (max-width: 360px) {
+  .floating-tile { gap: 4px; padding-inline: 4px; font-size: 10px; }
+  .tile-icon { width: 20px; }
+  .tile-people > span { width: 18px; height: 18px; }
+  .tile-people > span + span { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-toggle { display: none; }
 }
