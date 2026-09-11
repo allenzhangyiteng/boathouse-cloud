@@ -37,6 +37,9 @@ for src_name, out_name in (('index.template.html', 'index.html'), ('demo.templat
   t = re.sub(r"\{\{WORDMARK_(\d+)(_[A-Z]+)?\}\}", lambda m: wordmark(int(m.group(1)), INKS[m.group(2) or ""]), t)
   t = t.replace('{{WORDMARK_OUTLINE}}', wordmark_outline())
   t = t.replace('/site/site.css', f'/site/site.css?v={css_hash}')
+  for asset in ('clean.css', 'clean.js'):
+      digest = hashlib.sha256((site / asset).read_bytes()).hexdigest()[:12]
+      t = t.replace('/site/' + asset, f'/site/{asset}?v={digest}')
   assert '{{' not in t
   (site/out_name).write_text(t)
   print(out_name, 'built, css', css_hash)
