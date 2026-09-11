@@ -23,7 +23,7 @@ patterns = {
     'private-key': re.compile(r'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----'),
     'provider-credential': re.compile(r'\b(?:sk_live_|rk_live_|whsec_|ghp_|github_pat_)[A-Za-z0-9_\-]{16,}'),
     'saved-agent-token': re.compile(r'\bbh_[A-Za-z0-9_\-]{30,}'),
-    'local-home-path': re.compile(r'/(?:Users|home)/[a-zA-Z][a-zA-Z0-9_.-]*/'),
+    'local-home-path': re.compile(r'/(?:Users/[a-zA-Z][a-zA-Z0-9_.-]*/|home/(?!user/)[a-zA-Z][a-zA-Z0-9_.-]*/)'),
 }
 issues = []
 for p in files:

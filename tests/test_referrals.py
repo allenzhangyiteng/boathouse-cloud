@@ -46,7 +46,7 @@ def test_a_deploy_on_an_empty_balance_is_refused(client):
     ws = db.workspace("sam-ref")
     key = auth.create_project_key(ws["id"], "sam-ref@fixture.test", "k")
     r = client.post("/api/tools/hello/deploys", headers={**API, "Authorization": f"Bearer {key}"}, files={"context": ("ctx.tar", b"x")})
-    assert r.status_code == 402 and "put money on the balance before deploying" in r.json()["detail"] and "$0.16 a day" in r.json()["detail"]
+    assert r.status_code == 402 and "put money on the balance before deploying" in r.json()["detail"] and f"${billing.daily_rate(ws)/100:.2f} a day" in r.json()["detail"]
 
 
 def test_metering_halves_the_rate_and_pays_the_referrer(client, monkeypatch):

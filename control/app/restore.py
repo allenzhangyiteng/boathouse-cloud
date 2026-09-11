@@ -11,9 +11,11 @@ import os
 import pathlib
 import re
 import subprocess
+import shutil
+import tempfile
 import time
 
-from . import config, db, deploy, export
+from . import config, db, deploy, export, resources
 
 
 def points(tool) -> list[dict]:
@@ -24,11 +26,15 @@ def points(tool) -> list[dict]:
     for d in sorted(config.BACKUP_DIR.iterdir(), reverse=True):
         if not d.is_dir() or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", d.name):
             continue
+        if (d/".inprogress").exists():
+            continue
         dbf, df = d / f"{deploy.db_name(tool)}.sql.gz", d / f"{deploy.vol_name(tool)}.tgz"
+        if not df.exists():
+            df=d/f"bh-{deploy.resource_key(tool)}-data.tgz"
         if dbf.exists() or df.exists():
             out.append({"date": d.name, "database": dbf.exists(), "files": df.exists(),
                         "database_bytes": dbf.stat().st_size if dbf.exists() else 0,
-                        "files_bytes": df.stat().st_size if df.exists() else 0})
+                        "files_bytes": df.stat().st_size if df.exists() else 0, "files_name": df.name})
     return out
 
 
@@ -36,6 +42,10 @@ def snapshot(tool: dict) -> pathlib.Path:
     """What the tool holds right now, kept beside the state so a restore can be undone by hand."""
     d = config.STATE_DIR / "pre-restore" / f"{deploy.resource_key(tool)}-{time.time_ns()}-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}"
     d.mkdir(parents=True, exist_ok=True)
+    if config.RESOURCE_GUARD:
+        from . import resources
+        with resources.host_operation():export.stream_snapshot(tool,d)
+        return d
     (d / "database.sql").write_bytes(export.dump_database(tool))
     blob = export.data_archive(tool)
     if blob:
@@ -49,23 +59,34 @@ def apply_database(tool: dict, dump_gz: pathlib.Path):
     env = {**os.environ, "PGPASSWORD": tool["db_password"]}
     def psql(args, stdin=None):
         r = subprocess.run(["psql", "-h", config.PG_HOST, "-U", name, "-d", name, "-q", "-v", "ON_ERROR_STOP=1", *args],
-                           env=env, input=stdin, capture_output=True, timeout=900)
+                           env=env, stdin=stdin, capture_output=True, timeout=900)
         if r.returncode != 0:
             raise RuntimeError("psql failed: " + r.stderr.decode(errors="replace")[-400:])
-    psql(["-c", "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;"])
-    psql(["-f", "-"], stdin=gzip.decompress(dump_gz.read_bytes()))
+    # Validate/decompress before changing the database. A large backup must not
+    # occupy the control service's memory or consume the host's emergency space.
+    maximum=2*resources.measure(tool)['limit_bytes']+config.MAX_SOURCE_HISTORY_BYTES if config.RESOURCE_GUARD else None
+    with tempfile.TemporaryFile(dir=config.STATE_DIR) as prepared, gzip.open(dump_gz,'rb') as source:
+        total=0
+        while chunk:=source.read(1024*1024):
+            total+=len(chunk)
+            if maximum is not None and (total>maximum or shutil.disk_usage(config.STATE_DIR).free<8*1024**3+len(chunk)):
+                raise RuntimeError('This database backup exceeds safe restore capacity. Contact support; the database has not been changed.')
+            prepared.write(chunk)
+        prepared.seek(0)
+        psql(["-c", "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;"])
+        psql(["-f", "-"], stdin=prepared)
 
 
 def apply_files(tool, tgz_host_path: str):
     """Empty the volume and unpack the backup into it with a throwaway container. The path is the host's,
     because the docker daemon is the one mounting it."""
     deploy.client().containers.run(
-        "alpine", ["sh", "-c", "rm -rf /v/* /v/.[!.]* 2>/dev/null; tar xzf /b.tgz -C /v"], remove=True,
+        "alpine", ["sh", "-c", "rm -rf /v/* /v/.[!.]* 2>/dev/null; tar xzf /b.tgz -C /v"], remove=True, mem_limit="128m", memswap_limit="128m", nano_cpus=500000000, pids_limit=64,
         volumes={deploy.vol_name(tool): {"bind": "/v", "mode": "rw"}, tgz_host_path: {"bind": "/b.tgz", "mode": "ro"}})
 
 
 def restore(tool: dict, ws: dict, date: str) -> dict:
-    with deploy.operation(tool):
+    with deploy.operation(tool), resources.host_operation():
         with db.conn() as c:
             current = c.execute("SELECT * FROM tools WHERE id=?", (tool["id"],)).fetchone()
         if current is None:
@@ -85,7 +106,7 @@ def _restore_locked(tool, ws, date):
             apply_database(tool, config.BACKUP_DIR / date / f"{deploy.db_name(tool)}.sql.gz")
             done["database"] = True
         if pt["files"]:
-            apply_files(tool, f"{config.BACKUP_DIR_HOST}/{date}/{deploy.vol_name(tool)}.tgz")
+            apply_files(tool, f"{config.BACKUP_DIR_HOST}/{date}/{pt.get('files_name',deploy.vol_name(tool)+'.tgz')}")
             done["files"] = True
     finally:
         if tool.get("current_release_id"):

@@ -75,3 +75,20 @@ def test_member_cannot_restore(setup, client):
     client.post("/api/users", headers={**API, "Authorization": f"Bearer {setup['key']}"}, json={"email": "kira@restore.test", "role": "member"})
     mkey = auth.create_project_key(setup["wsid"], "kira@restore.test", "t")
     assert client.get("/api/tools/ledger/restore-points", headers={**API, "Authorization": f"Bearer {mkey}"}).status_code == 403
+
+
+def test_large_or_invalid_restore_is_rejected_before_schema_changes(tmp_path,monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setattr(config,'RESOURCE_GUARD',True)
+    monkeypatch.setattr(config,'STATE_DIR',tmp_path)
+    monkeypatch.setattr(config,'MAX_SOURCE_HISTORY_BYTES',0)
+    monkeypatch.setattr(restore.resources,'measure',lambda tool:{'limit_bytes':1024})
+    monkeypatch.setattr(restore.shutil,'disk_usage',lambda path:SimpleNamespace(free=20*1024**3))
+    calls=[]
+    monkeypatch.setattr(restore.subprocess,'run',lambda *a,**kw:calls.append(a))
+    backup=tmp_path/'large.gz';backup.write_bytes(gzip.compress(b'x'*4096))
+    with pytest.raises(RuntimeError,match='has not been changed'):restore.apply_database({'resource_key':'probe-test','db_password':'synthetic'},backup)
+    assert not calls
+    backup.write_bytes(b'not gzip')
+    with pytest.raises(gzip.BadGzipFile):restore.apply_database({'resource_key':'probe-test','db_password':'synthetic'},backup)
+    assert not calls

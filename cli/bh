@@ -514,13 +514,13 @@ def cmd_update(a):
 # The everyday bh commands: reversible, spend nothing. Claude Code's auto mode sends anything that looks like "granting
 # permissions" or "production deploys" to its classifier, which refuses; an explicit allow rule for a narrow command resolves
 # first and never reaches it. Buying, paying, deleting a tool and restoring data are left out on purpose, so a person is asked.
-TRUSTED = ["whoami", "ls", "status", "logs", "releases", "rollback", "restart", "deploy", "pull", "share", "unshare", "request",
+TRUSTED = ["usage", "whoami", "ls", "status", "logs", "releases", "rollback", "restart", "deploy", "pull", "share", "unshare", "request",
            "requests", "allow", "access", "export", "secrets", "users", "keys", "audit", "prices", "skill", "update", "claim", "login", "trust",
            "domain ls", "domain check", "domain point", "domain attach", "domain dns", "domain primary", "domain repoint", "domain detach", "domain free",
            "billing status", "billing meter"]
 
 
-ASK = ["domain buy", "billing topup", "billing card", "billing autorefill", "rm", "restore"]   # a person's own yes, always
+ASK = ["capacity", "domain buy", "billing topup", "billing card", "billing autorefill", "rm", "restore"]   # a person's own yes, always
 ENV_MARK = "Boat House: "
 ENV_NOTES = [ENV_MARK + "boathousecloud.com, api.boathousecloud.com and *.boathousecloud.com are the user's own hosting service, driven by the bh command.",
              ENV_MARK + "bh share and bh unshare give or take back viewer/editor/admin access to one of the user's own hosted tools; reversible, no money, routine. "
@@ -1041,8 +1041,10 @@ def cmd_billing(a):
         temporary.replace(pending_path)
         print(q["message"] + f" Balance after: {_money(q['balance_after_cents'])}.")
         if not a.yes:
-            print("dry run only. Re-run with --yes to charge the card."); return
+            print("dry run only. Re-run with --yes to get the secure payment link."); return
         r = call("POST", "/api/billing/topup", body={"cents": cents, "confirm": True, "operation_id": q["operation_id"]}, timeout=120)
+        if r.get("requires_checkout"):
+            print(r["message"]); print(r.get("checkout_url") or "Open your account to check this payment."); return
         print(f"charged {_money(r['cents'])}; balance now {_money(r['balance_cents'])}" + (" (workspace resumed)" if r.get("resumed") else ""))
         pending_path.unlink(missing_ok=True)
     elif a.action == "autorefill":
@@ -1065,6 +1067,17 @@ def cmd_billing(a):
             print(f"{l['workspace']:<12}{l['tool']:<16}{_money(l['cents']):>8}  {l['gb']} GB")
         if not r["lines"]:
             print("nothing to charge (already metered today, or nothing running)")
+
+
+def cmd_usage(a):
+    out(call('GET', f'/api/tools/{a.tool}/usage'))
+
+def cmd_capacity(a):
+    if a.yes:
+        if not a.quote_id or a.max_monthly_cents is None: die('Use the approved quote ID and maximum extra monthly cents.')
+        body={'confirm':True,'quote_id':a.quote_id,'max_extra_monthly_cents':a.max_monthly_cents}
+    else: body={'storage_gb':a.gb}
+    out(call('POST',f'/api/tools/{a.tool}/capacity',body=body))
 
 
 def cmd_registrar(a):
@@ -1127,6 +1140,8 @@ def main():
     s = sp.add_parser("deploy"); s.add_argument("path", nargs="?"); s.add_argument("--slug"); s.add_argument("--name"); s.add_argument("--note"); s.add_argument("--force", action="store_true", help="push even if the live release moved on"); s.set_defaults(f=cmd_deploy)
     s = sp.add_parser("pull"); s.add_argument("tool"); s.add_argument("dir", nargs="?"); s.add_argument("--release", type=int); s.add_argument("--force", action="store_true"); s.add_argument("--dir", dest="dir2", help="same as the folder argument"); s.set_defaults(f=cmd_pull)
     s = sp.add_parser("ls"); s.set_defaults(f=cmd_ls)
+    s = sp.add_parser('usage'); s.add_argument('tool'); s.set_defaults(f=cmd_usage)
+    s = sp.add_parser('capacity'); s.add_argument('tool'); s.add_argument('--gb',type=int); s.add_argument('--yes',action='store_true'); s.add_argument('--quote-id'); s.add_argument('--max-monthly-cents',type=int); s.set_defaults(f=cmd_capacity)
     s = sp.add_parser("status"); s.add_argument("tool"); s.set_defaults(f=cmd_status)
     s = sp.add_parser("logs"); s.add_argument("tool"); s.add_argument("--tail", type=int, default=200); s.add_argument("--since"); s.set_defaults(f=cmd_logs)
     s = sp.add_parser("releases"); s.add_argument("tool"); s.set_defaults(f=cmd_releases)

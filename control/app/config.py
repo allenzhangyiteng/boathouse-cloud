@@ -43,6 +43,19 @@ TOOL_CPUS = float(os.environ.get("BH_TOOL_CPUS", "1.0"))
 TOOL_PIDS = int(os.environ.get("BH_TOOL_PIDS", "256"))
 TOOL_PORT = 8080
 KEEP_RELEASES = 5
+RESOURCE_GUARD = os.environ.get("BH_RESOURCE_GUARD", "0") == "1"
+RESOURCE_SOCKET = os.environ.get("BH_RESOURCE_SOCKET", "/run/boathouse-guard/agent.sock")
+RESOURCE_INTERVAL = int(os.environ.get("BH_RESOURCE_INTERVAL", "30"))
+TOOL_STORAGE_BYTES = 1024 ** 3
+TOOL_MAX_STORAGE_GIB = 10
+TOOL_MAX_RUNNING = int(os.environ.get("BH_MAX_RUNNING_TOOLS", "8"))
+TOOL_READONLY = RESOURCE_GUARD
+PG_CONNECTION_LIMIT = int(os.environ.get("BH_PG_CONNECTION_LIMIT", "8"))
+PG_QUERY_SECONDS = int(os.environ.get("BH_PG_QUERY_SECONDS", "30"))
+BUILD_TIMEOUT = int(os.environ.get("BH_BUILD_TIMEOUT", "300"))
+BUILD_MEMORY = os.environ.get("BH_BUILD_MEMORY", "1g")
+BUILD_STORAGE_BYTES = 3 * 1024 ** 3
+MAX_SOURCE_HISTORY_BYTES = 512 * 1024 ** 2
 
 # The first workspace, seeded on boot. More workspaces are rows, not config.
 WORKSPACE_SLUG = os.environ.get("BH_WORKSPACE", "starter").lower()

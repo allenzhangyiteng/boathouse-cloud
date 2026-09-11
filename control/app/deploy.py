@@ -9,6 +9,9 @@ import re
 from contextlib import contextmanager
 import json
 import socket
+import uuid
+import shutil
+from pathlib import Path
 import tarfile
 import time
 
@@ -17,7 +20,7 @@ import psycopg
 from psycopg import sql
 from docker.errors import NotFound, APIError
 
-from . import auth, config, db, hosts
+from . import auth, config, db, hosts, sandbox
 
 CADDY = os.environ.get("BH_CADDY_CONTAINER", "bh-caddy")
 POSTGRES = os.environ.get("BH_POSTGRES_CONTAINER", "bh-postgres")
@@ -40,7 +43,7 @@ def resource_key(tool):
 
 def net_name(tool): return f"bh-net-{resource_key(tool)}"
 def ctr_name(tool): return f"tool-{resource_key(tool)}"
-def vol_name(tool): return f"bh-{resource_key(tool)}-data"
+def vol_name(tool): return f"bh-{resource_key(tool)}-{'bounded-' if config.RESOURCE_GUARD else ''}data"
 def image_tag(tool, seq): return f"bh/{resource_key(tool)}:{seq}"
 def db_name(tool): return "t_" + resource_key(tool).replace("-", "_")
 
@@ -89,11 +92,21 @@ def ensure_volume(tool):
     try:
         return c.volumes.get(vol_name(tool))
     except NotFound:
+        if config.RESOURCE_GUARD:
+            from . import resources
+            allocation=resources.ensure(tool)
+            return c.volumes.create(vol_name(tool),labels=resource_labels(tool),driver='local',
+                                    driver_opts={'type':'none','o':'bind','device':allocation['files_path']})
         return c.volumes.create(vol_name(tool), labels=resource_labels(tool))
 
 
 def ensure_database(tool, password: str):
     name = db_name(tool)
+    space = 'q_'+resource_key(tool).replace('-','_')
+    allocation = None
+    if config.RESOURCE_GUARD:
+        from . import resources
+        allocation = resources.ensure(tool)
     with psycopg.connect(host=config.PG_HOST, user="postgres", password=config.PG_ADMIN_PASSWORD,
                          dbname="postgres", autocommit=True) as pg:
         exists = pg.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (name,)).fetchone()
@@ -101,8 +114,20 @@ def ensure_database(tool, password: str):
             pg.execute(sql.SQL("CREATE ROLE {} LOGIN PASSWORD {}").format(sql.Identifier(name), sql.Literal(password)))
         else:
             pg.execute(sql.SQL("ALTER ROLE {} WITH PASSWORD {}").format(sql.Identifier(name), sql.Literal(password)))
-        if not pg.execute("SELECT 1 FROM pg_database WHERE datname=%s", (name,)).fetchone():
-            pg.execute(sql.SQL("CREATE DATABASE {} OWNER {}").format(sql.Identifier(name), sql.Identifier(name)))
+        if allocation:
+            if not pg.execute('SELECT 1 FROM pg_tablespace WHERE spcname=%s',(space,)).fetchone():
+                pg.execute(sql.SQL('CREATE TABLESPACE {} LOCATION {}').format(sql.Identifier(space),sql.Literal(allocation['postgres_path'])))
+            pg.execute(sql.SQL('GRANT CREATE ON TABLESPACE {} TO {}').format(sql.Identifier(space),sql.Identifier(name)))
+            pg.execute('REVOKE CREATE ON TABLESPACE pg_default FROM PUBLIC')
+            pg.execute(sql.SQL('ALTER ROLE {} CONNECTION LIMIT {}').format(sql.Identifier(name),sql.Literal(config.PG_CONNECTION_LIMIT)))
+            for setting,value in [('statement_timeout',str(config.PG_QUERY_SECONDS*1000)),('idle_in_transaction_session_timeout','30000'),('temp_file_limit','65536')]:
+                pg.execute(sql.SQL('ALTER ROLE {} SET {} = {}').format(sql.Identifier(name),sql.Identifier(setting),sql.Literal(value)))
+        existing=pg.execute('SELECT t.spcname FROM pg_database d JOIN pg_tablespace t ON t.oid=d.dattablespace WHERE d.datname=%s',(name,)).fetchone()
+        if not existing:
+            suffix=sql.SQL(' TABLESPACE {}').format(sql.Identifier(space)) if allocation else sql.SQL('')
+            pg.execute(sql.SQL('CREATE DATABASE {} OWNER {}').format(sql.Identifier(name),sql.Identifier(name))+suffix)
+        elif allocation and existing[0]!=space:
+            raise RuntimeError('This database needs the operator’s quota migration before the app can restart. Existing data has not been moved.')
         # PostgreSQL grants CONNECT and TEMP to PUBLIC by default. Each tool
         # must enter only its own database, even when it knows a sibling's name.
         pg.execute(sql.SQL("REVOKE ALL ON DATABASE {} FROM PUBLIC").format(sql.Identifier(name)))
@@ -162,6 +187,9 @@ def build(tool, seq: int, context: bytes) -> tuple[str, str]:
     """Build the image from an uploaded tar of the tool folder. Returns (tag, log)."""
     tag = image_tag(tool, seq)
     context = ensure_dockerfile(context)
+    if config.RESOURCE_GUARD:
+        from . import bounded_build
+        return bounded_build.build(tool,seq,context)
     api = client().api
     lines = []
     for chunk in api.build(fileobj=io.BytesIO(context), custom_context=True, tag=tag, rm=True,
@@ -205,6 +233,12 @@ def _probe(tool, timeout: float = 60.0) -> bool:
 
 
 def run(tool, tag: str, ws) -> str:
+    from . import resources
+    with resources.host_operation():
+        resources.admission(tool)
+        return _run(tool,tag,ws)
+
+def _run(tool, tag: str, ws) -> str:
     """Start the tool on this image, replacing whatever is running. Returns container id.
     On a failed health probe the old container is left stopped, not removed, and
     the failure log is raised so the release record carries it."""
@@ -260,19 +294,54 @@ def run(tool, tag: str, ws) -> str:
             old.remove(force=True)
         except APIError as error:
             db.audit("deploy", "container.cleanup_failed", tool["slug"], {"error": str(error)[:200]}, ws["id"])
+    prune_runtime(tool)
     return ctr.id
 
 
 def _start(c, tag: str, tool, env: dict):
+    if config.RESOURCE_GUARD:
+        declared=(c.images.get(tag).attrs.get('Config') or {}).get('Volumes') or {}
+        allowed={'/data','/etc/nginx/conf.d','/tmp','/run','/var/cache/nginx','/root/.gunicorn'}
+        if set(declared)-allowed:
+            raise ValueError('The app image declares an unbounded volume. Remove its VOLUME instruction and store persistent files in DATA_DIR (/data).')
+    volumes={vol_name(tool): {'bind':'/data','mode':'rw'}}
+    if config.RESOURCE_GUARD:
+        from . import resources
+        allocation=resources.ensure(tool)
+        runtime=Path(allocation['files_path']).parent/'runtime'/uuid.uuid4().hex
+        runtime.mkdir(parents=True,mode=0o755)
+        name='bh-'+resource_key(tool)+'-runtime-'+runtime.name
+        volume=c.volumes.create(name,driver='local',driver_opts={'type':'none','o':'bind','device':str(runtime)},
+                                labels={'boathouse.runtime':resource_key(tool)})
+        # Copy image defaults into an empty named volume, then allow bounded
+        # Nginx configuration rendering without making the app root writable.
+        volumes[volume.name]={'bind':'/etc/nginx/conf.d','mode':'rw'}
     return c.containers.run(
         tag, name=ctr_name(tool), detach=True, environment=env,
-        network=net_name(tool), volumes={vol_name(tool): {"bind": "/data", "mode": "rw"}},
-        mem_limit=config.TOOL_MEMORY, nano_cpus=int(config.TOOL_CPUS * 1e9), pids_limit=config.TOOL_PIDS,
+        network=net_name(tool), volumes=volumes,
+        mem_limit=config.TOOL_MEMORY, nano_cpus=int(config.TOOL_CPUS * 1e9), pids_limit=config.TOOL_PIDS, cpu_shares=128,
+        memswap_limit=config.TOOL_MEMORY,
+        read_only=config.TOOL_READONLY,
+        tmpfs=({'/tmp':'rw,nosuid,size=64m','/run':'rw,nosuid,size=16m','/var/cache/nginx':'rw,nosuid,size=32m','/root/.gunicorn':'rw,nosuid,size=4m'} if config.TOOL_READONLY else None),
         restart_policy={"Name": "unless-stopped"},
         log_config={"type": "json-file", "config": {"max-size": "10m", "max-file": "3"}},
         labels={**resource_labels(tool), "boathouse.image": tag},
-        security_opt=["no-new-privileges:true"],
+        security_opt=["no-new-privileges:true"] + (["seccomp=" + sandbox.profile()] if config.RESOURCE_GUARD else []),
     )
+
+
+def prune_runtime(tool):
+    if not config.RESOURCE_GUARD:return
+    from . import resources
+    allocation=resources.measure(tool)
+    parent=Path(allocation['files_path']).parent/'runtime'
+    for volume in client().volumes.list(filters={'label':'boathouse.runtime='+resource_key(tool)}):
+        volume.reload()
+        path=Path((volume.attrs.get('Options') or {}).get('device','/invalid'))
+        if path.parent!=parent or not re.fullmatch('[a-f0-9]{32}',path.name) or path.is_symlink():continue
+        try:volume.remove(force=False)
+        except APIError:continue
+        if path.exists():shutil.rmtree(path)
 
 
 def restart(tool, ws):
@@ -322,6 +391,7 @@ def remove(tool, purge: bool):
             c.images.remove(tag, force=True)
         except APIError:
             pass
+    prune_runtime(tool)
     if purge:
         try:
             c.volumes.get(vol_name(tool)).remove(force=True)
@@ -330,7 +400,15 @@ def remove(tool, purge: bool):
         with psycopg.connect(host=config.PG_HOST, user="postgres", password=config.PG_ADMIN_PASSWORD,
                              dbname="postgres", autocommit=True) as pg:
             pg.execute(sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(db_name(tool))))
+            if config.RESOURCE_GUARD:
+                pg.execute(sql.SQL("DROP TABLESPACE IF EXISTS {}").format(sql.Identifier("q_"+resource_key(tool).replace("-","_"))))
             pg.execute(sql.SQL("DROP ROLE IF EXISTS {}").format(sql.Identifier(db_name(tool))))
+
+        if config.RESOURCE_GUARD:
+            from . import resources
+            resources.broker('DELETE','/resources/'+resource_key(tool),{'purge':True})
+            with db.conn() as connection:
+                connection.execute('DELETE FROM resource_limits WHERE resource_key=?',(resource_key(tool),))
 
 
 def collapse_repeats(text: str) -> str:

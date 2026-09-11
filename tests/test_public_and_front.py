@@ -106,14 +106,14 @@ def test_money_from_the_page(setup, client):
     sid = auth.create_platform_session("owner@pub.test")
     P = {"host": PLAT}
     page = client.get("/welcome?ws=pub-co", headers=P, cookies={"bh_account": sid}).text
-    assert "Start with $20" in page and "cannot charge your card" in page and "Add a payment method" in page
-    assert "Saving your card charges nothing" in page and "Domains and extra storage cost extra" in page
+    assert "Add $20" in page and "Continue to Stripe" in page and "bank verification" in page
+    assert "If it runs out, apps pause; their data is kept" in page
     from app import pages
     connect = pages._connect("platform.test", "bh_x", "BH-AAAA-BBBB-CCCC")
     assert "Copy connection" in connect and "Do not change agent security settings" in connect
     csrf = re.search(r'name=csrf value="([^"]+)"', page)[1]
     r = client.post("/account/pub-co/topup", headers=P, cookies={"bh_account": sid}, data={"csrf": csrf, "dollars": "20", "back": "welcome"})
-    assert r.status_code == 422 and "Add a card first" in r.text
+    assert r.status_code == 422 and "does not match this workspace and amount" in r.text
     with db.conn() as c:
         c.execute("UPDATE workspaces SET stripe_pm='pm_fake' WHERE id=?", (setup["ws"]["id"],))
     r = client.post("/account/pub-co/autorefill", headers=P, cookies={"bh_account": sid}, data={"csrf": csrf, "dollars": "20", "cap": "100", "back": "welcome"})

@@ -23,7 +23,7 @@ from . import config, deploy
 def dump_database(tool) -> bytes:
     name = deploy.db_name(tool)
     env = {**os.environ, "PGPASSWORD": config.PG_ADMIN_PASSWORD}
-    out = subprocess.run(["pg_dump", "-h", config.PG_HOST, "-U", "postgres", "--no-owner", "--no-privileges", name],
+    out = subprocess.run(["pg_dump", "-h", config.PG_HOST, "-U", "postgres", "--no-owner", "--no-privileges", "--no-tablespaces", name],
                          env=env, capture_output=True, timeout=900)
     if out.returncode != 0:
         raise RuntimeError("pg_dump failed: " + out.stderr.decode(errors="replace")[-400:])
@@ -67,6 +67,8 @@ def _safe(name: str) -> bool:
 
 def build(tool: dict, ws: dict, source_path: str | None, seq: int | None) -> pathlib.Path:
     """Write the archive to a temporary file and return its path; the caller deletes it after sending."""
+    if config.RESOURCE_GUARD:
+        return _bounded_export(tool,ws,source_path,seq)
     tmp = tempfile.NamedTemporaryFile(prefix=f"bh-export-{tool['slug']}-", suffix=".tar.gz", delete=False)
     now = int(time.time())
     with tarfile.open(fileobj=tmp, mode="w:gz") as tf:
@@ -96,3 +98,59 @@ def build(tool: dict, ws: dict, source_path: str | None, seq: int | None) -> pat
         add("README.txt", _readme(tool, ws, seq).encode())
     tmp.close()
     return pathlib.Path(tmp.name)
+
+
+def stream_snapshot(tool,destination):
+    """Write database and file archives to disk, without buffering a whole app in RAM."""
+    from . import resources
+    allocation=resources.measure(tool)
+    maximum=2*allocation['limit_bytes']+config.MAX_SOURCE_HISTORY_BYTES
+    health=resources.broker('GET','/health')
+    if health['host_available_bytes']<health['host_reserve_bytes']+2*maximum:
+        raise resources.ResourceError('There is not enough temporary space to safely export this app. Contact support; nothing was changed.')
+    destination=pathlib.Path(destination)
+    name=deploy.db_name(tool)
+    env={**os.environ,'PGPASSWORD':config.PG_ADMIN_PASSWORD,'PGOPTIONS':'-c statement_timeout=30000 -c lock_timeout=5000'}
+    with (destination/'database.sql').open('wb') as out:
+        result=subprocess.run(['pg_dump','-h',config.PG_HOST,'-U','postgres','--no-owner','--no-privileges','--no-tablespaces',name],
+                              env=env,stdout=out,stderr=subprocess.PIPE,timeout=300)
+    if result.returncode:raise RuntimeError('Database export failed: '+result.stderr.decode(errors='replace')[-300:])
+    if (destination/'database.sql').stat().st_size>maximum:raise RuntimeError('Database export exceeded its safe temporary size.')
+    from docker.errors import NotFound
+    try:stream,_=deploy.client().containers.get(deploy.ctr_name(tool)).get_archive('/data')
+    except NotFound:return
+    written=0
+    with (destination/'data.tar').open('wb') as out:
+        for chunk in stream:
+            written+=len(chunk)
+            if written>maximum:raise RuntimeError('File export exceeded its safe temporary size.')
+            out.write(chunk)
+
+
+def _bounded_export(tool,ws,source_path,seq):
+    from . import resources
+    with resources.host_operation(),tempfile.TemporaryDirectory(prefix='bh-export-stage-') as directory:
+        root=pathlib.Path(directory)
+        stream_snapshot(tool,root)
+        target=tempfile.NamedTemporaryFile(prefix='bh-export-',suffix='.tar.gz',delete=False);target.close()
+        path=pathlib.Path(target.name)
+        try:
+            with tarfile.open(path,'w:gz') as dst:
+                dst.add(root/'database.sql',arcname='database.sql')
+                sources=[]
+                if source_path and pathlib.Path(source_path).is_file():sources.append((source_path,'source'))
+                if (root/'data.tar').exists():sources.append((root/'data.tar','data'))
+                for archive,prefix in sources:
+                    with tarfile.open(archive,'r:*') as src:
+                        for member in src:
+                            name=re.sub(r'^(\./)+','',member.name)
+                            if not _safe(name) or not (member.isfile() or member.isdir()):continue
+                            f=src.extractfile(member) if member.isfile() else None
+                            if prefix=='data':name=name.removeprefix('data/');name='' if name=='data' else name
+                            member.name=prefix+('/'+name if name else '')
+                            dst.addfile(member,f)
+                body=_readme(tool,ws,seq).encode();member=tarfile.TarInfo('README.txt');member.size=len(body);dst.addfile(member,io.BytesIO(body))
+            return path
+        except Exception:
+            path.unlink(missing_ok=True)
+            raise

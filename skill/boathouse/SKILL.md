@@ -44,7 +44,7 @@ snake_case names: `whoami`, `list_tools`, `get_tool`, `deploy` (a map of file pa
 alone is enough for a website), `pull`, `logs`, `releases`, `rollback`, `restart`, `share`, `unshare`,
 `request_access`, `access_requests`, `allow_request`, `set_access`, `secrets_list/set/delete`,
 `users_list/add/invite/remove`, `domains_list`, `domain_check/buy/attach/point/primary/dns/repoint/detach`,
-`billing`, `prices`, `referral`, `topup`, `card_link`, `delete_tool`; `tools/list` has the exact schemas. Still
+`billing`, `prices`, `usage`, `capacity`, `referral`, `topup`, `card_link`, `delete_tool`; `tools/list` has the exact schemas. Still
 bh-only: `export`, `restore`, `audit`, `keys`, `billing autorefill`, `trust`.
 
 A **workspace** (tenant) owns tools, people, and domains. Its tools are reachable on its own domain
@@ -113,7 +113,7 @@ A folder with a `Dockerfile` whose process listens on `$PORT` (8080), or a plain
 | any `bh secrets set` value | as named |
 
 Builds have network: `pip install` and `npm install` in the Dockerfile work (a small Python build takes about twenty
-seconds; later builds reuse the cache). A failed build or a tool that crashes on start never replaces the release that
+seconds; builds use an isolated temporary environment). A failed build or a tool that crashes on start never replaces the release that
 was running.
 
 A tool contains **no login code**. Every request arrives with the signed-in person:
@@ -158,9 +158,12 @@ bh access <tool> members|listed|public [--tier viewer|editor]  members = anyone 
 bh secrets ls|set|rm <tool> NAME      set reads the value from stdin or a prompt; restarts the tool
 bh users [add <email> --role member|owner|guest] [invite <email>] [rm <email>]   owners only
 bh billing                       balance, burn per day, days left, card, last ledger lines
-bh billing card                  one-time link to enter a card (the only billing step that needs a browser)
-bh billing topup 20 [--yes]      quote, then charge the card on file; pending payments are safely retried
+bh billing card                  optional page to replace or save a card for capped auto-refill
+bh billing topup 20 [--yes]      quote, then secure Stripe checkout; the owner completes payment there
 bh billing autorefill 20 --cap 100   capped refill; omitted --cap allows at most one refill amount per month
+bh usage <tool>                   usage, hard limits, and any pause reason
+bh capacity <tool> --gb 2         quote a higher storage limit; requires owner approval
+bh capacity <tool> --yes --quote-id <id> --max-monthly-cents <approved-cap>
 bh prices                        the price sheet in words
 bh domain check <name>           availability and price
 bh domain buy <name> [--yes --quote-id <id> --max-cost-cents <budget>] [--to <tool>]   quote first; confirm the same quote within the approved total; --to puts a tool on the domain's front
@@ -202,14 +205,13 @@ at example.com and www.example.com with HTTPS. Reads need no sign-in; anything t
 
 ## Money, and the rule for spending it
 
-A workspace holds prepaid credit; nothing runs until money is on it (a deploy on an empty balance is refused with a 402 that says where the owner adds money). `bh referral` shows the person's referral code and link (10% of what referred workspaces pay, in cash monthly; half price for their first 60 days). Running tools cost $10.00/month each, charged as $0.33 once a day for each tool running at the daily tick (deploy, look and delete within a day: nothing); the first GB of storage
+A workspace holds prepaid credit; nothing runs until money is on it (a deploy on an empty balance is refused with a 402 that says where the owner adds money). `bh referral` shows the person's referral code and link (10% of what referred workspaces pay, in cash monthly; half price for their first 60 days). Running tools cost exactly $10.00 for a full UTC calendar month, divided into daily charges across that month; partial months pay the dates the tool runs at a metering tick; the first GB of storage
 is included, then $0.25/GB/month; a domain costs registrar price plus $2.00/year. At zero the workspace pauses
 (tools stop, nothing is deleted) and resumes on the next top-up. **Every command that spends money returns a
 quote first and does nothing else**: `bh domain buy x.example` and `bh billing topup 20` print the cost and stop;
 the agent shows the cost to the person, and only on their yes runs the same command with `--yes`. Never add
 `--yes` on your own. If the balance is short, do not try to charge the card yourself: tell the person the amount
-and point them at their workspace page (https://boathousecloud.com/account), where one click tops up $20 or turns
-on capped auto-refill; then continue.
+and point them at their workspace page (https://boathousecloud.com/account), where Add credit opens one secure Stripe checkout, including any bank verification. Card details never go through chat. Auto-refill is a separate, explicit approval with a monthly cap; then continue.
 
 ## New workspace from the terminal
 
@@ -238,3 +240,12 @@ its preceding quote, the same `cents`, and `confirm: true`. Reuse operation IDs 
 - `bh export` is the whole tool in one file (code, database as SQL, files) and runs anywhere with a Dockerfile; secrets are not in it.
 - Sessions are per domain: signing in on `acme.example` does not sign you in on the free address.
 - The registrar's own rules: one purchase attempt per 10 seconds, no premium names by API, prepaid balance only.
+
+
+## Resource limits and growth
+
+On the managed service, each app starts with 1 GB of combined database and file storage, 512 MB RAM and up to one CPU core. Apps write persistent files to DATA_DIR; other app files are read-only and temporary directories are bounded. Builds run separately, one at a time, with 1 GB RAM, one CPU, 3 GB temporary storage and a five-minute deadline. Uploaded source expands to at most 256 MB; app images are at most 512 MB and source history at most 512 MB per app.
+
+Use `bh usage` before diagnosing a slow or paused app. Storage warnings appear in the account and are emailed to owners at 80% and 90%. An app near its storage limit pauses; its data remains. Native filesystem quotas enforce the hard limit even if the monitor is unavailable. PostgreSQL roles have 8 connections, bounded temporary query files and query timeouts. If capacity is unavailable on the host, a deployment is refused before replacing the current app.
+
+Never silently upgrade an app. Ask for a capacity quote, explain its maximum extra monthly cost, and confirm only the exact approved quote and price. Self-service storage is capped at 10 GB and depends on available host capacity. Larger workloads need operator review. CPU and memory increases also need operator review. Never tell someone a deployment is queued unless the service actually accepted it.

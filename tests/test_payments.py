@@ -312,17 +312,19 @@ def test_polling_reuses_form_quotes_and_exposes_recovery(setup, monkeypatch):
 
 
 def test_account_form_double_submit_is_one_charge(setup, monkeypatch):
-    processor = Processor(monkeypatch)
+    from test_checkout import CheckoutProcessor
+    processor = CheckoutProcessor(monkeypatch)
     opid = quote(setup, 2000)
     monkeypatch.setattr(front, "_guard", lambda *a: ("owner@review.test", [], db.workspace(), None))
     for _ in range(2):
         result = front.account_topup(setup["slug"], None, "20", "csrf", "welcome", opid)
         assert result.status_code == 303
-    assert len(processor.requests) == 1 and billing.balance(setup["id"]) == 2000
+    assert len(processor.sessions) == 1 and billing.balance(setup["id"]) == 0
 
 
 def test_cli_persists_quote_through_lost_response_and_new_process_globals(setup, monkeypatch, tmp_path):
-    processor = Processor(monkeypatch)
+    from test_checkout import CheckoutProcessor
+    processor = CheckoutProcessor(monkeypatch)
     processor.lose_response = True
     cli_path = Path(__file__).resolve().parents[1] / "cli" / "bh"
     def command():
@@ -337,12 +339,15 @@ def test_cli_persists_quote_through_lost_response_and_new_process_globals(setup,
         command()(args)
     assert len(list((tmp_path / "cli").glob("payment-*.json"))) == 1
     command()(args)
-    assert len(processor.intents) == 1 and billing.balance(setup["id"]) == 500
+    processor.pay()
+    command()(args)
+    assert len(processor.sessions) == 1 and billing.balance(setup["id"]) == 500
     assert list((tmp_path / "cli").glob("payment-*.json")) == []
 
 
 def test_mcp_quote_and_explicit_confirmation_use_same_operation(setup, monkeypatch):
-    processor = Processor(monkeypatch)
+    from test_checkout import CheckoutProcessor
+    processor = CheckoutProcessor(monkeypatch)
     class Api:
         async def post(self, path, json):
             result = main.billing_topup(None, json, None)
@@ -353,7 +358,7 @@ def test_mcp_quote_and_explicit_confirmation_use_same_operation(setup, monkeypat
     with pytest.raises(Exception):
         asyncio.run(mcp.t_topup(api, {"cents": 500, "confirm": "false"}))
     _, confirmed = asyncio.run(mcp.t_topup(api, {"cents": 500, "confirm": True, "operation_id": q["operation_id"]}))
-    assert confirmed["operation_id"] == q["operation_id"] and len(processor.requests) == 1
+    assert confirmed["operation_id"] == q["operation_id"] and len(processor.sessions) == 1 and confirmed["requires_checkout"]
 
 
 def test_cent_parser_is_exact_and_rejects_nan():

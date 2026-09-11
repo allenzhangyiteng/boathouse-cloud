@@ -8,6 +8,7 @@ import hmac
 import json
 import time
 import datetime as dt
+import calendar
 import fcntl
 import uuid
 from contextlib import contextmanager
@@ -21,20 +22,39 @@ from . import auth, config, db, deploy, referrals
 
 # ---- the price sheet (cents) --------------------------------------------------
 PRICES = {
-    "tool_month": 1000,         # per running tool, "$10 a month", metered daily as 1000 // 30 so a month never exceeds $10
+    "tool_month": 1000,         # exactly $10 for a complete calendar month
     "storage_gb_month": 25,     # per GB above the first GB, database + files, metered daily
     "domain_margin": 200,       # per domain per year on top of registrar cost
     "included_gb": 1,
 }
-TOOL_DAY = PRICES["tool_month"] // 30                        # 33 cents a day
+TOOL_DAY = PRICES["tool_month"] // 30                        # approximate display rate; never used for metering
 PAUSE_AT = 0
 REFILL_BELOW = 500                                           # try the card when under $5
 
 
+def monthly_rate(ws, date: dt.date | None = None) -> int:
+    date = date or dt.datetime.now(dt.timezone.utc).date()
+    stamp = dt.datetime.combine(date, dt.time(), tzinfo=dt.timezone.utc).timestamp()
+    return referrals.tool_day_for(ws, PRICES["tool_month"], now=stamp)
+
+
+def daily_rate(ws, today: str | None = None) -> int:
+    """Deterministic cents per UTC date; any full calendar month sums exactly.
+
+    Rounding is distributed across days instead of multiplying a rounded daily
+    rate. Past ledger entries are never retroactively changed during rollout.
+    """
+    date = dt.date.fromisoformat(today) if today else dt.datetime.now(dt.timezone.utc).date()
+    days = calendar.monthrange(date.year, date.month)[1]
+    month = monthly_rate(ws, date)
+    return (date.day * month // days) - ((date.day - 1) * month // days)
+
+
 def price_sheet() -> dict:
     return {**PRICES, "tool_day": TOOL_DAY, "currency": "usd",
-            "words": [f"${PRICES['tool_month']/100:.2f} per running tool per month, charged as ${TOOL_DAY/100:.2f} once a day for each tool running at the daily tick (deploy, look and delete within a day: nothing)",
-                      f"first {PRICES['included_gb']} GB of storage included, then ${PRICES['storage_gb_month']/100:.2f} per GB per month",
+            "billing_period": "UTC calendar month", "tool_day_is_estimate": True,
+            "words": [f"${PRICES['tool_month']/100:.2f} per running tool for a full calendar month; daily charges divide that month's price across its days (about ${TOOL_DAY/100:.2f}/day)",
+                      f"first {PRICES['included_gb']} GB of storage included; more capacity requires approval, then ${PRICES['storage_gb_month']/100:.2f} per used extra GB per month",
                       f"domains at registrar cost plus ${PRICES['domain_margin']/100:.2f} per year, always quoted first",
                       "stopped tools cost nothing; data is kept", "at zero balance tools pause; nothing is deleted",
                       "sign up with someone's referral code: every tool is half price for your first 60 days",
@@ -88,26 +108,31 @@ def ledger(workspace_id: str, limit: int = 50) -> list[dict]:
 # ---- metering ---------------------------------------------------------------------
 
 def _storage_gb(tool) -> float:
-    """Database plus volume, in GB. Best effort; a measurement failure counts as zero."""
+    """Database plus volume, in GiB. Failed measurements must not silently bill zero."""
+    if getattr(config, "RESOURCE_GUARD", False):
+        from . import resources
+        return resources.measure(tool)["storage_bytes"] / (1024 ** 3)
     total = 0
     try:
         with psycopg.connect(host=config.PG_HOST, user="postgres", password=config.PG_ADMIN_PASSWORD, dbname="postgres", autocommit=True) as pg:
             r = pg.execute("SELECT pg_database_size(%s)", (deploy.db_name(tool),)).fetchone()
             total += int(r[0] or 0)
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as e:
+        raise RuntimeError("Database storage could not be measured; this usage charge will retry.") from e
     try:
         c = deploy.client()
         out = c.containers.run("alpine", ["du", "-sk", "/v"], remove=True, volumes={deploy.vol_name(tool): {"bind": "/v", "mode": "ro"}})
         total += int(out.decode().split()[0]) * 1024
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as e:
+        raise RuntimeError("File storage could not be measured; this usage charge will retry.") from e
     return total / (1024 ** 3)
 
 
 def meter_once(today: str | None = None) -> list[dict]:
     """Charge every running tool once for today. Safe to call any number of times a day."""
     today = today or dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
+    date = dt.date.fromisoformat(today)
+    denominator = 1024 ** 3 * calendar.monthrange(date.year, date.month)[1]
     lines = []
     with db.conn() as c:
         workspaces = c.execute("SELECT * FROM workspaces").fetchall()
@@ -124,12 +149,34 @@ def meter_once(today: str | None = None) -> list[dict]:
                 if c.execute("""SELECT 1 FROM ledger WHERE ref=? OR ref=? OR (workspace_id=? AND kind='charge' AND memo LIKE ?)""",
                              (ref, f"meter:{t['id']}:{today}", ws["id"], f"{t['slug']}: running day {today}%")).fetchone():
                     continue
-            gb = _storage_gb(t)
-            extra = max(0.0, gb - PRICES["included_gb"])
-            storage = round(extra * PRICES["storage_gb_month"] / 30)
-            day = referrals.tool_day_for(ws, TOOL_DAY)
-            amount = day + storage
-            post(ws["id"], "charge", -amount, f"{t['slug']}: running day {today}" + (" (half price)" if day < TOOL_DAY else "") + (f", {gb:.2f} GB" if storage else ""), ref, "meter")
+            try:
+                gb = _storage_gb(t)
+            except Exception:
+                db.audit("meter", "billing.measurement_failed", t["slug"], {"date": today}, ws["id"])
+                continue
+            extra_bytes = max(0, round(gb * 1024 ** 3) - PRICES["included_gb"] * 1024 ** 3)
+            day = daily_rate(ws, today)
+            # Serialize both accrual and the debit. Concurrent ticks must neither
+            # lose fractional storage nor count a measurement twice.
+            with db.conn() as c:
+                c.execute("BEGIN IMMEDIATE")
+                if c.execute("SELECT 1 FROM ledger WHERE ref=? OR ref=? OR (workspace_id=? AND kind='charge' AND memo LIKE ?)",
+                             (ref, f"meter:{t['id']}:{today}", ws["id"], f"{t['slug']}: running day {today}%")).fetchone():
+                    c.execute("COMMIT")
+                    continue
+                key = (ws["id"], t["resource_key"], today[:7])
+                c.execute("INSERT OR IGNORE INTO storage_accrual(workspace_id,resource_key,month) VALUES(?,?,?)", key)
+                accrued = c.execute("SELECT byte_cent_days,charged_cents FROM storage_accrual WHERE workspace_id=? AND resource_key=? AND month=?", key).fetchone()
+                numerator = accrued["byte_cent_days"] + extra_bytes * PRICES["storage_gb_month"]
+                total_storage_cents = numerator // denominator
+                storage = total_storage_cents - accrued["charged_cents"]
+                amount = day + storage
+                bal = c.execute("SELECT balance_cents FROM workspaces WHERE id=?", (ws["id"],)).fetchone()[0] - amount
+                c.execute("UPDATE workspaces SET balance_cents=? WHERE id=?", (bal, ws["id"]))
+                memo = f"{t['slug']}: running day {today}" + (" (half price)" if monthly_rate(ws, date) < PRICES["tool_month"] else "") + (f", {gb:.2f} GB" if storage else "")
+                c.execute("INSERT INTO ledger VALUES(?,?,?,?,?,?,?,?,?)", (db.new_id("l"),ws["id"],time.time(),"charge",-amount,bal,memo,ref,"meter"))
+                c.execute("UPDATE storage_accrual SET byte_cent_days=?,charged_cents=? WHERE workspace_id=? AND resource_key=? AND month=?", (numerator,total_storage_cents,*key))
+                c.execute("COMMIT")
             referrals.earn(ws, amount, ref)
             lines.append({"workspace": ws["slug"], "tool": t["slug"], "cents": amount, "gb": round(gb, 3)})
         _settle(ws)
@@ -165,10 +212,18 @@ def resume(ws):
         tools = c.execute("SELECT * FROM tools WHERE workspace_id=?", (ws["id"],)).fetchall()
         c.execute("UPDATE workspaces SET paused=0 WHERE id=?", (ws["id"],))
     for t in tools:
+        if config.RESOURCE_GUARD:
+            from . import resources
+            if resources.blocked(t):
+                continue
         try:
             ctr = deploy.client().containers.get(deploy.ctr_name(t))
             if ctr.status != "running":
-                ctr.start()
+                if config.RESOURCE_GUARD:
+                    with resources.host_operation():
+                        resources.admission(t)
+                        ctr.start()
+                else: ctr.start()
         except NotFound:
             pass
         except Exception:  # noqa: BLE001
@@ -348,8 +403,6 @@ def quote_topup(ws, cents, by, operation_id=None):
 
 
 def form_quotes(ws, by):
-    if not ws["stripe_pm"]:
-        return {}
     quotes = {}
     for cents in (2000, 4000):
         try:
@@ -407,6 +460,11 @@ def _complete_payment(op, pi):
                       (db.new_id("l"), op["workspace_id"], time.time(), "topup", op["cents"], bal, memo, ref, op["created_by"]))
         c.execute("UPDATE payment_operations SET status='succeeded',provider_id=?,updated=?,error=NULL WHERE id=?",
                   (pi["id"], time.time(), op["id"]))
+        # Checkout collected consent to save this card, but auto-refill stays off
+        # unless the owner separately enables it with a monthly cap.
+        if current["checkout_payload"] and pi.get("payment_method"):
+            c.execute("UPDATE workspaces SET stripe_pm=? WHERE id=? AND stripe_customer=?",
+                      (pi["payment_method"],op["workspace_id"],op["customer"]))
         c.execute("COMMIT")
     return bal
 
@@ -424,6 +482,8 @@ def _payment_result(op, pi):
 
 
 def _execute_payment(ws, op):
+    if op["checkout_payload"]:
+        raise StripeError("Complete or check this payment on its secure checkout page; another card charge will not be started.", ambiguous=True)
     previously_submitted = op["status"] in ("pending", "unknown")
     if op["status"] == "succeeded":
         return balance(ws["id"])

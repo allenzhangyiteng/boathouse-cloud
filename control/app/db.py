@@ -84,6 +84,26 @@ CREATE TABLE IF NOT EXISTS payment_operations (
   created_by TEXT, month TEXT, customer TEXT, payment_method TEXT,
   provider_id TEXT UNIQUE, submitted REAL, error TEXT, payload_json TEXT);
 CREATE INDEX IF NOT EXISTS payment_operations_ws ON payment_operations(workspace_id, status);
+CREATE TABLE IF NOT EXISTS storage_accrual (
+  workspace_id TEXT NOT NULL, resource_key TEXT NOT NULL, month TEXT NOT NULL,
+  byte_cent_days INTEGER NOT NULL DEFAULT 0, charged_cents INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY(workspace_id, resource_key, month));
+CREATE TABLE IF NOT EXISTS resource_limits (
+  resource_key TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, slug TEXT NOT NULL,
+  limit_bytes INTEGER NOT NULL DEFAULT 1073741824, approved_by TEXT, approved_at REAL,
+  sampled_at REAL, storage_bytes INTEGER, memory_bytes INTEGER, cpu_percent REAL,
+  state TEXT NOT NULL DEFAULT 'ok', reason TEXT, high_cpu_since REAL,
+  last_warning INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS resource_quotes (
+  id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, resource_key TEXT NOT NULL,
+  old_limit_bytes INTEGER NOT NULL, limit_bytes INTEGER NOT NULL,
+  max_extra_monthly_cents INTEGER NOT NULL, created_by TEXT NOT NULL,
+  created REAL NOT NULL, expires REAL NOT NULL, confirmed REAL);
+CREATE TABLE IF NOT EXISTS resource_notifications (
+  id TEXT PRIMARY KEY, resource_key TEXT NOT NULL, level INTEGER NOT NULL,
+  email TEXT NOT NULL, subject TEXT NOT NULL, body TEXT NOT NULL,
+  created REAL NOT NULL, sent REAL, last_attempt REAL,
+  UNIQUE(resource_key,level,email,created));
 CREATE TABLE IF NOT EXISTS settings (
   name TEXT PRIMARY KEY, value_enc TEXT NOT NULL, updated REAL NOT NULL, updated_by TEXT);
 CREATE TABLE IF NOT EXISTS used_tokens (
@@ -98,6 +118,8 @@ CREATE INDEX IF NOT EXISTS audit_ts ON audit(ts);
 
 # Columns added after the first release. (table, column, ddl)
 MIGRATIONS = [
+    ("payment_operations", "checkout_id", "ALTER TABLE payment_operations ADD COLUMN checkout_id TEXT"),
+    ("payment_operations", "checkout_payload", "ALTER TABLE payment_operations ADD COLUMN checkout_payload TEXT"),
     ("users", "pw_hash", "ALTER TABLE users ADD COLUMN pw_hash TEXT"),
     ("users", "last_login", "ALTER TABLE users ADD COLUMN last_login REAL"),
     # tiers (2026-09-07): a grant is a tier (viewer|editor|admin) plus optional app labels

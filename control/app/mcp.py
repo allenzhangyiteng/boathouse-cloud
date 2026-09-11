@@ -566,11 +566,22 @@ async def t_topup(api: Api, a: dict):
     if confirm:
         operation_id = _need(a, "operation_id")
         j = (await api.post("/api/billing/topup", json={"cents": cents, "confirm": True, "operation_id": operation_id})).json()
+        if j.get("requires_checkout"):
+            return j["message"] + "\n" + (j.get("checkout_url") or "Open your account to check this payment."), j
         return (f"charged {_money(j['cents'])}; balance now {_money(j['balance_cents'])}" +
                 (" (workspace resumed)" if j.get("resumed") else "")), j
     q = (await api.post("/api/billing/topup", json={"cents": cents, "operation_id": a.get("operation_id")})).json()
-    quoted = q["message"] + f" Balance after: {_money(q['balance_after_cents'])}." + ("" if q["card_on_file"] else " No card on file yet: use card_link.")
+    quoted = q["message"] + f" Balance after: {_money(q['balance_after_cents'])}."
     return quoted + f"\nDry run only: nothing was charged. After the user's approval, call again with confirm true and operation_id {q['operation_id']}. Reuse this ID for any retry.", q
+
+
+async def t_usage(api,a):
+    result=(await api.get(f"/api/tools/{_need(a,'tool')}/usage")).json()
+    return result['message'],result
+
+async def t_capacity(api,a):
+    result=(await api.post(f"/api/tools/{_need(a,'tool')}/capacity",json={k:v for k,v in a.items() if k in ('storage_gb','quote_id','confirm','max_extra_monthly_cents')})).json()
+    return result['message'],result
 
 
 async def t_card_link(api: Api, a: dict):
@@ -804,6 +815,10 @@ TOOLS: list[tuple[str, str, dict, Handler]] = [
      "Stop serving a domain. The registration itself is untouched and domain_attach brings it back. Owners only.",
      _schema({"domain": {"type": "string", "description": "A domain the workspace answers on."}}, ["domain"]), t_domain_detach),
 
+    ('usage','Check storage, memory, CPU and the reason an app is paused. Tool admins only.',_schema({'tool':TOOL_ARG},['tool']),t_usage),
+    ('capacity','Quote additional app storage. Show the maximum extra monthly price and get owner approval before confirming. No automatic upgrade. Owners only.',
+     _schema({'tool':TOOL_ARG,'storage_gb':{'type':'integer','description':'Requested total storage in whole GB; starts with a price quote.'},'confirm':CONFIRM_ARG,'quote_id':{'type':'string','description':'The exact capacity quote the owner approved.'},'max_extra_monthly_cents':{'type':'integer','description':'Maximum extra monthly price from the approved quote, in cents.'}},['tool']),t_capacity),
+
     ("billing",
      "The workspace's money: prepaid balance, whether it is paused, how fast running tools burn credit, how "
      "many days are left, whether a card is on file, and the last ledger lines.",
@@ -819,7 +834,7 @@ TOOLS: list[tuple[str, str, dict, Handler]] = [
      _schema({}), t_referral),
 
     ("topup",
-     "Charge the card on file and add the amount to the workspace's prepaid balance. Without confirm it only "
+     "Open secure Stripe checkout to add prepaid hosting credit; the owner completes payment there. Without confirm it only "
      "quotes and returns operation_id. Confirm the same cents and operation_id after user approval; reuse the ID on retries. Between $5.00 (500) and $1,000.00 (100000). Owners only.",
      _schema({"cents": {"type": "integer", "description": "Amount in cents, e.g. 2000 for $20.00."},
               "confirm": CONFIRM_ARG,

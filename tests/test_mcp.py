@@ -198,7 +198,7 @@ def test_batch(client, key, owner):
 
 # ---- the catalogue -----------------------------------------------------------
 
-EXPECTED = {
+EXPECTED = {"usage", "capacity",
     "whoami", "list_tools", "get_tool", "deploy", "pull", "logs", "releases", "rollback", "restart",
     "share", "unshare", "set_access", "secrets_list", "secrets_set", "secrets_delete",
     "users_list", "users_add", "users_invite", "users_remove",
@@ -526,14 +526,14 @@ def test_billing_and_prices(client, key, ws):
     assert f"workspace {ws['slug']}: balance $" in text_of(res) and "card on file:" in text_of(res)
     assert "balance_cents" in res["structuredContent"]
     res = call_tool(client, "prices", key=key)
-    assert res["isError"] is False and "per running tool per month" in text_of(res)
+    assert res["isError"] is False and "full calendar month" in text_of(res)
 
 
 def test_topup_without_confirm_charges_nothing(client, key):
     before = call_tool(client, "billing", key=key)["structuredContent"]["balance_cents"]
     res = call_tool(client, "topup", {"cents": 2000}, key=key)
     assert res["isError"] is False
-    assert "Dry run only" in text_of(res) and "No card on file" in text_of(res)
+    assert "Dry run only" in text_of(res) and "secure Stripe checkout" in text_of(res)
     assert res["structuredContent"]["dry_run"] is True
     after = call_tool(client, "billing", key=key)["structuredContent"]["balance_cents"]
     assert before == after

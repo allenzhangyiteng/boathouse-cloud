@@ -358,14 +358,14 @@ def _connect(platform: str, key: str, code: str | None = None, workspace: str = 
 
 
 def _month_rate(v: dict) -> str:
-    day = int(v.get("tool_day_cents") or 33)
-    return "$10 a month" if day >= 33 else f"$5 a month (half price until {_date(v.get('discount_until'))}, then $10)"
+    month = int(v.get("tool_month_cents") or 1000)
+    return "$10 a month" if month >= 1000 else f"$5 a month (half price until {_date(v.get('discount_until'))}, then $10)"
 
 
 def _months20(v: dict) -> str:
     """How long $20 runs one tool at this workspace's own rate (half price while a referral discount lasts)."""
-    day = int(v.get("tool_day_cents") or 33)
-    n = max(1, 2000 // (day * 30))
+    month = int(v.get("tool_month_cents") or 1000)
+    n = max(1, 2000 // month)
     return {1: "one month", 2: "two months", 3: "three months", 4: "four months"}.get(n, f"{n} months")
 
 
@@ -373,26 +373,23 @@ def _money_block(v: dict, back: str) -> str:
     """One primary funding action; preserve explicit payment and auto-refill consent."""
     a = f"/account/{_e(v['slug'])}"
     csrf = f'<input type=hidden name=csrf value="{_e(v["csrf"])}"><input type=hidden name=back value="{back}">'
-    if not v["card_on_file"]:
-        return f'''<p>Start with $20 of hosting credit, enough for about {_months20(v)} of one app. First, save your card on our payment provider’s secure page.</p>
-<form method=post action="{a}/card">{csrf}<input type=hidden name=want value=none><button>Add a payment method</button></form>
-<p><small>Saving your card charges nothing. Your agent cannot charge your card itself. You’ll return here to approve adding credit. Domains and extra storage cost extra; your agent quotes those before purchase.</small></p>'''
     quotes = v.get("topup_quotes", {})
     pending = v.get("pending_payment")
     recovery = ""
     if pending:
-        recovery = f'<p role=status>We’re confirming your previous {_money(pending["cents"])} payment. Another payment will wait until its result is known.</p>'
+        recovery = f'<p role=status>Continue or check your previous {_money(pending["cents"])} payment. Another payment waits until this one is paid or expires (30 minutes).</p>'
         if pending["kind"] == "manual":
             recovery += f'<form method=post action="{a}/topup">{csrf}<input type=hidden name=dollars value="{pending["cents"]/100:.2f}"><input type=hidden name=operation_id value="{_e(pending["id"])}"><button>Check the previous payment</button></form>'
     refill = v.get("autorefill_cents") or 0
     cap = v.get("autorefill_cap_cents") or 0
-    refill_line = (f'Auto-refill adds {_money(refill)} when credit falls below $5, with a {_money(cap)} monthly cap.' if refill else 'Auto-refill is off. Your card is only charged when you approve a top-up.')
-    return f'''{recovery}<p>Your card is saved. Add $20 to run one app for about {_months20(v)}.</p>
+    refill_line = (f'Auto-refill adds {_money(refill)} when credit falls below $5, with a {_money(cap)} monthly cap.' if refill else 'Auto-refill is off. Every top-up needs your approval on Stripe.')
+    refill_form = (f'<form method=post action="{a}/autorefill">{csrf}<input type=hidden name=dollars value=20><input type=hidden name=cap value=100><button class=s>{"Keep" if refill else "Enable"} auto-refill: $20, up to $100/month</button></form>' if v.get('card_on_file') else '<p>Optional auto-refill becomes available after your first successful card payment.</p>')
+    return f'''{recovery}<p>Add $20 to run one app for about {_months20(v)}.</p>
 <form method=post action="{a}/topup">{csrf}<input type=hidden name=dollars value=20><input type=hidden name=operation_id value="{_e(quotes.get('2000', ''))}"><button{' disabled' if not quotes.get('2000') else ''}>Add $20 hosting credit</button></form>
-<p><small>This charges your saved card $20. Credit pays for your running apps each day. If it runs out, apps pause; their data is kept.</small></p>
+<p><small>Continue to Stripe to securely pay $20. Complete any bank verification there; you return here when done. Credit pays for your running apps each day. If it runs out, apps pause; their data is kept.</small></p>
 <details><summary>More credit and optional auto-refill</summary><p>{refill_line}</p>
 <form method=post action="{a}/topup">{csrf}<input type=hidden name=dollars value=40><input type=hidden name=operation_id value="{_e(quotes.get('4000', ''))}"><button class=s{' disabled' if not quotes.get('4000') else ''}>Add $40 credit</button></form>
-<form method=post action="{a}/autorefill">{csrf}<input type=hidden name=dollars value=20><input type=hidden name=cap value=100><button class=s>{'Keep' if refill else 'Enable'} auto-refill: $20, up to $100/month</button></form>
+{refill_form}
 {f'<form method=post action="{a}/autorefill">{csrf}<input type=hidden name=dollars value=0><input type=hidden name=cap value=0><button class=s>Turn auto-refill off</button></form>' if refill else ''}
 <p><small>Auto-refill authorizes automatic charges up to the monthly cap. Leave it off to approve every top-up yourself.</small></p></details>'''
 
@@ -408,8 +405,8 @@ def _balance_line(v: dict) -> str:
 def _rate_line(v: dict) -> str:
     until = v.get("discount_until")
     if until and until > time.time():
-        return f"A tool costs $10 a month, counted by the day. Yours are half price, $5 a month, until {_date(until)}, thanks to {_e(v.get('referred_by') or 'a referral code')}."
-    return "A tool costs $10 a month, counted by the day."
+        return f"A tool costs $10 a month, prorated by the day in each calendar month. Yours are half price, $5 a month, until {_date(until)}, thanks to {_e(v.get('referred_by') or 'a referral code')}."
+    return "A tool costs $10 a month, prorated by the day in each calendar month."
 
 
 def _referral_block(r: dict | None) -> str:
@@ -541,12 +538,21 @@ def account(v: dict) -> str:
     refill = (f"{_money(v['autorefill_cents'])} when under $5.00" + (f", at most {_money(v['autorefill_cap_cents'])} a month" if v["autorefill_cap_cents"] else "")) if v["autorefill_cents"] else "off"
 
     def tool_card(t):
+        usage=t.get('usage'); capacity=''
+        if usage:
+            amount=usage.get('storage_bytes'); limit=usage['storage_limit_bytes']/1024**3
+            measured=f"{amount/1024**3:.2f} of {limit:g} GB used" if amount is not None else f"{limit:g} GB storage limit"
+            capacity=f'<div class=meta><strong>{measured}</strong><p>{_e(usage["message"])}</p></div>'
+            if usage.get('sample_stale'): capacity+='<small>Usage is waiting for a fresh reading. Hard limits remain in effect.</small>'
+            if limit<10:
+                capacity+=f'''<details><summary>Increase storage</summary><form method=post action="/account/{_e(v['slug'])}/apps/{_e(t['slug'])}/capacity">{csrf}<label>Storage limit (GB)<input type=number name=storage_gb min="{int(limit)+1}" max=10 value="{int(limit)+1}" required></label><button class=s>Review price</button></form><small>No charge or capacity change until you approve the quote.</small></details>'''
+
         g = ", ".join(f"{_e(x['email'])} ({_e(x['tier'])})" for x in t["grants"]) or "owners only"
         rel = f"version {t['release']['seq']}" + (f" · {_e(t['release']['note'])}" if t["release"].get("note") else "") if t["release"] else "never deployed"
         who = "everyone in the workspace" if t["default_access"] == "members" else "only people listed"
         return (f"<div class=card><h3><span class='dot {'' if t['state'] == 'running' else 'off'}'></span>{_e(t['name'])}</h3>"
                 f"<a class=url href=\"{_e(t.get('open', t['url']))}\">{_e(t['url'])}</a><div class=meta>{_e(t['state'])} · {rel}</div>"
-                f"<div class=meta>{who} as {_e(t['default_tier'])}; shared with {g}</div></div>")
+                f"<div class=meta>{who} as {_e(t['default_tier'])}; shared with {g}</div>{capacity}</div>")
     tools = "".join(tool_card(t) for t in v["tools"]) or "<div class=card><h3>No tools yet</h3><div class=meta>Connect your agent, then say “put my tool online.” Your agent handles the setup and it appears here.</div></div>"
 
     keys = "".join(

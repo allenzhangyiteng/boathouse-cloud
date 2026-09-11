@@ -29,7 +29,7 @@ from pathlib import Path
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 
-from . import auth, billing, config, db, deploy, hosts, legal, mail, pages, referrals
+from . import checkout, resources, auth, billing, config, db, deploy, hosts, legal, mail, pages, referrals
 
 router = APIRouter()
 CSRF = "account"
@@ -458,7 +458,7 @@ def _welcome_state(ws, email: str) -> dict:
     return {"connected": bool(used), "connected_ago": pages._ago(used), "card_on_file": bool(ws["stripe_pm"]),
             "topup_quotes": billing.form_quotes(ws, email),
             "pending_payment": billing.pending_payment(ws),
-            "discount_until": ws["discount_until"], "referred_by": ws["referred_by"], "tool_day_cents": referrals.tool_day_for(ws, billing.TOOL_DAY),
+            "discount_until": ws["discount_until"], "referred_by": ws["referred_by"], "tool_day_cents": billing.daily_rate(ws), "tool_month_cents": billing.monthly_rate(ws),
             "balance_cents": billing.balance(ws["id"]), "autorefill_cents": ws["autorefill_cents"], "autorefill_cap_cents": ws["autorefill_cap_cents"],
             "tools": [{"name": t["name"], "url": hosts.tool_url(ws, t["slug"]), "open": f"/open/{ws['slug']}/{t['slug']}"} for t in tools if deploy.status(t)["state"] == "running"]}
 
@@ -584,7 +584,7 @@ def welcome(request: Request, ws: str | None = None, card: str | None = None, to
     elif card == "cancelled":
         notice = "No card was saved. You can add one any time."
     elif topped:
-        notice = f"Added ${int(topped)/100:,.2f} to the balance."
+        notice = "Your current balance and payment history are shown below."
     elif refill == "on":
         notice = "Auto-refill is on. You will see every refill on the ledger."
     elif refill == "off":
@@ -721,9 +721,9 @@ def _view(email: str, memberships, m, notice: str | None = None, error: str | No
             grants = [dict(g) for g in c.execute("SELECT email, tier, labels FROM grants WHERE tool_id=? ORDER BY email", (t["id"],))]
         shown.append({"slug": t["slug"], "name": t["name"], "url": f"https://{t['slug']}.{base}", "open": f"/open/{ws['slug']}/{t['slug']}", "state": state,
                       "release": dict(rel) if rel else None, "default_access": t["default_access"],
-                      "default_tier": t["default_tier"], "grants": grants})
+                      "default_tier": t["default_tier"], "grants": grants, "usage": resources.current(t) if config.RESOURCE_GUARD else None})
     balance = billing.balance(ws["id"])
-    burn = running * referrals.tool_day_for(ws, billing.TOOL_DAY)     # the workspace's own rate (half price on a referral)
+    burn = running * billing.daily_rate(ws)     # the workspace's own rate (half price on a referral)
     return {
         "csrf": auth.csrf_token(CSRF), "notice": notice, "error": error,
         "memberships": memberships, "my_role": "owner",
@@ -737,7 +737,7 @@ def _view(email: str, memberships, m, notice: str | None = None, error: str | No
         "free_address": f"{ws['slug']}.{config.PLATFORM_DOMAIN}",
         "domains": [dict(d) for d in hosts.workspace_domains(ws["id"])], "tools": shown,
         "referral": referrals.summary(email), "discount_until": ws["discount_until"], "referred_by": ws["referred_by"],
-        "tool_day_cents": referrals.tool_day_for(ws, billing.TOOL_DAY),
+        "tool_day_cents": billing.daily_rate(ws), "tool_month_cents": billing.monthly_rate(ws),
     }
 
 
@@ -759,11 +759,11 @@ def account(request: Request, ws: str | None = None, welcome: str | None = None,
     if welcome:
         notice = f"Welcome. {m['name']} is ready. Get a connection code below and paste it into your agent’s chat, or use the welcome page."
     elif card == "saved":
-        notice = "Card saved. Top-ups and auto-refill are ready."
+        notice = "Your payment methods are shown below."
     elif card == "cancelled":
         notice = "No card was saved."
     elif topped:
-        notice = f"Added ${int(topped)/100:,.2f} to the balance."
+        notice = "Your current balance and payment history are shown below."
     elif refill == "on":
         notice = "Auto-refill is on."
     elif refill == "off":
@@ -829,16 +829,29 @@ def account_topup(slug: str, request: Request, dollars: str = Form("20"), csrf: 
     to = f"/welcome?ws={ws['slug']}" if back == "welcome" else f"/account?ws={ws['slug']}"
     if cents < 500 or cents > 100000:
         return _render(email, mem, ws, error="Top up between $5 and $1,000.", code=422)
-    if not ws["stripe_pm"]:
-        return _render(email, mem, ws, error="No card on file yet. Add a card first.", code=422)
     try:
-        bal = billing.charge_card(ws, cents, f"top-up by {email}", email, operation_id)
+        result = checkout.start(ws, cents, email, operation_id)
     except billing.StripeError as e:
         return _render(email, mem, ws, error=str(e), code=422)
-    if ws["paused"] and bal > 0:
-        billing.resume(ws)
-    db.audit(email, "billing.topup", None, {"cents": cents, "via": "page"}, ws["id"])
-    return RedirectResponse(to + f"&topped={cents}", 303)
+    if result.get('checkout_url'):
+        return RedirectResponse(result['checkout_url'],303)
+    if result['payment_status']=='succeeded':
+        return _render(email,mem,ws,notice=f"Payment confirmed. Your balance is ${result['balance_cents']/100:.2f}.")
+    return _render(email,mem,ws,notice='This checkout has ended or is still processing. Your balance below reflects confirmed payments only.')
+
+
+@router.get('/account/{slug}/payment-return')
+def account_payment_return(slug: str, request: Request, operation_id: str = ''):
+    email,ws,bad = _owner(request,slug)
+    if bad: return bad
+    mem=auth.memberships(email)
+    try:
+        result=checkout.reconcile(ws,operation_id)
+    except billing.StripeError as e:
+        return _render(email,mem,ws,error=str(e),code=422)
+    message=(f"Payment confirmed. Your balance is ${result['balance_cents']/100:.2f}." if result['payment_status']=='succeeded'
+             else 'Your payment is still being confirmed. Credit will appear here after Stripe confirms it.')
+    return _render(email,mem,ws,notice=message)
 
 
 @router.post("/account/{slug}/autorefill")
@@ -987,3 +1000,19 @@ def account_remove_person(slug: str, target: str, request: Request, csrf: str = 
         c.execute("DELETE FROM grants WHERE email=? AND tool_id IN (SELECT id FROM tools WHERE workspace_id=?)", (target, wid))
     db.audit(email, "user.remove", target, {"via": "account page"}, wid)
     return _render(email, mem, ws, notice=f"{target} removed. Their sessions, keys, invites and shares went with them.")
+
+
+@router.post('/account/{slug}/apps/{tool}/capacity')
+def account_capacity(slug: str,tool: str,request: Request,csrf: str=Form(''),storage_gb: int=Form(2),quote_id: str=Form(''),maximum: int=Form(-1)):
+    email,mem,ws,bad=_guard(request,slug,csrf)
+    if bad: return bad
+    t=_main()._tool_or_404(ws['id'],tool)
+    try:
+        if quote_id:
+            resources.confirm(t,ws,quote_id,maximum,email)
+            return _render(email,mem,ws,notice='Capacity increased. No one-time charge was made; approved extra storage is metered as used.')
+        q=resources.quote(t,ws,storage_gb,email)
+        body=f'''<h1>Review capacity for {pages._e(t['name'])}</h1><p>{pages._e(q['message'].replace('Confirm only after the owner approves.',''))}</p>
+<form method=post><input type=hidden name=csrf value="{pages._e(csrf)}"><input type=hidden name=quote_id value="{pages._e(q['quote_id'])}"><input type=hidden name=maximum value="{q['max_extra_monthly_cents']}"><button>Approve up to ${q['max_extra_monthly_cents']/100:.2f} extra per month</button></form><p><a href="/account?ws={pages._e(slug)}">Cancel</a></p>'''
+        return HTMLResponse(pages.page('Review app capacity',body))
+    except resources.ResourceError as e: return _render(email,mem,ws,error=str(e),code=409)

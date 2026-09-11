@@ -21,10 +21,15 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from starlette.background import BackgroundTask
 
-from . import auth, billing, config, db, deploy, domain_payments, export, hosts, mail, pages, referrals, registrar, restore
+from . import checkout, resources, auth, billing, config, db, deploy, domain_payments, export, hosts, mail, pages, referrals, registrar, restore
 from .hosts import RESERVED
 
 app = FastAPI(title="Boathouse", docs_url=None, redoc_url=None)
+@app.exception_handler(resources.ResourceError)
+async def resource_error(request,exc):
+    from fastapi.responses import JSONResponse
+    return JSONResponse({'detail':str(exc)},status_code=409)
+
 SLUG_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}$")
 LABEL_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 TIERS = db.TIERS
@@ -84,8 +89,17 @@ def _startup():
             deploy.ensure_network(tool)
         except Exception as e:  # noqa: BLE001
             print(f"startup: could not attach networks for {tool['slug']}: {e}")
+    if config.RESOURCE_GUARD:
+        asyncio.get_event_loop().create_task(_resource_loop())
     if config.METER:
         asyncio.get_event_loop().create_task(_meter_loop())
+
+
+async def _resource_loop():
+    while True:
+        try: await run_in_threadpool(resources.monitor_once)
+        except Exception as e: print(f'resource monitor: {type(e).__name__}')
+        await asyncio.sleep(config.RESOURCE_INTERVAL)
 
 
 async def _meter_loop():
@@ -93,6 +107,7 @@ async def _meter_loop():
     await asyncio.sleep(60)
     while True:
         try:
+            await run_in_threadpool(checkout.reconcile_pending)
             lines = await run_in_threadpool(billing.meter_once)
             if lines:
                 db.audit("meter", "billing.metered", None, {"lines": len(lines), "cents": sum(x["cents"] for x in lines)})
@@ -478,6 +493,8 @@ def authz(request: Request):
     tool = hosts.tool_for(w)
     if not tool:
         return HTMLResponse(pages.unknown(host), 404)
+    if resources.blocked(tool):
+        return HTMLResponse(pages.page('App paused','<h1>This app is at its capacity limit.</h1><p>The owner can review capacity in Boat House. Existing data is kept.</p>'),503)
     if w.workspace["paused"]:
         return HTMLResponse(pages.paused(host, _owners(w.workspace["id"])), 402)
     user = auth.session_user(request.cookies.get(config.SESSION_COOKIE), w.workspace["id"])
@@ -599,7 +616,7 @@ def _public_tool(t, ws, user=None) -> dict:
             "urls": ([f"https://{front['domain']}", f"https://www.{front['domain']}"] if front else []) + [f"https://{t['slug']}.{b}" for b in hosts.all_bases(ws)],
             "public": bool(t["public"]) if "public" in t.keys() else False,
             "default_access": t["default_access"], "default_tier": t["default_tier"],
-            "status": st, "release": {k: rel[k] for k in ("seq", "created", "created_by", "note")} | {"has_source": bool(rel["source"])} if rel else None,
+            "usage": resources.current(t) if config.RESOURCE_GUARD else None, "status": st, "release": {k: rel[k] for k in ("seq", "created", "created_by", "note")} | {"has_source": bool(rel["source"])} if rel else None,
             "grants": grants, "created_by": t["created_by"], "my_tier": mine[0] if mine else None}
 
 
@@ -630,6 +647,23 @@ def list_tools(request: Request, authorization: str | None = Header(None)):
     if u["role"] not in ("owner", "member"):
         rows = [t for t in rows if _tier_for(u, t)]          # a guest sees only what was shared with them
     return [_public_tool(t, ws, u) for t in rows]
+
+
+@app.get('/api/tools/{slug}/usage')
+def tool_usage(slug: str,request: Request,authorization: str | None = Header(None)):
+    u=_actor(request,authorization);ws=_ws(u);t=_tool_or_404(ws['id'],slug)
+    _require_tool_admin(u,t)
+    return resources.current(t)
+
+@app.post('/api/tools/{slug}/capacity')
+def tool_capacity(slug: str,request: Request,body: dict,authorization: str | None = Header(None)):
+    u=_actor(request,authorization);_require_owner(u);ws=_ws(u);t=_tool_or_404(ws['id'],slug)
+    if type(body.get('confirm',False)) is not bool: raise HTTPException(422,'confirm must be true or false')
+    try:
+        if body.get('confirm'):
+            return resources.confirm(t,ws,body.get('quote_id'),body.get('max_extra_monthly_cents'),u['email'])
+        return resources.quote(t,ws,body.get('storage_gb'),u['email'])
+    except resources.ResourceError as e: raise HTTPException(409,str(e))
 
 
 @app.post("/api/tools")
@@ -773,7 +807,8 @@ def _source_path(tool, seq: int):
 def _do_release(t, ws, u, context: bytes | None, note: str | None, image: str | None,
                 source: str | None = None, base: int | None = None):
     """Serialize on durable resource identity, then recheck the submitted base."""
-    with deploy.operation(t):
+    with deploy.operation(t), resources.host_operation():
+        resources.admission(t)
         return _release_locked(t, ws, u, context, note, image, source, base)
 
 
@@ -798,6 +833,8 @@ def _release_locked(t, ws, u, context, note, image, source, base):
         if context is not None:
             sp = _source_path(t, seq)
             sp.parent.mkdir(parents=True, exist_ok=True)
+            if sum(p.stat().st_size for p in sp.parent.glob('*.tar.gz'))+len(context)>config.MAX_SOURCE_HISTORY_BYTES:
+                raise ValueError('This app reached its 512 MB source-history limit. Contact support to archive old releases before publishing more.')
             with sp.open("xb") as archive:
                 archive.write(context)
             with db.conn() as c:
@@ -805,6 +842,7 @@ def _release_locked(t, ws, u, context, note, image, source, base):
             image, log = deploy.build(t, seq, context)
         with db.conn() as c:
             c.execute("UPDATE releases SET image=?, status='starting', log=? WHERE id=?", (image, log, rid))
+        resources.admission(t)
         deploy.run(t, image, ws)
         with db.conn() as c:
             c.execute("BEGIN IMMEDIATE")
@@ -843,12 +881,12 @@ def _months_words(cents: int, day: int) -> str:
 def _deploy_gate(ws) -> str | None:
     """Why a deploy would be refused for money right now, in words, or None. The deploy route raises it as a
     402; bh and the MCP list ask for it first, so nobody uploads a folder only to be told the balance is empty."""
-    day = referrals.tool_day_for(ws, billing.TOOL_DAY)
+    day = billing.daily_rate(ws)
     bal = billing.balance(ws["id"])
     if bal < day and not (ws["stripe_pm"] and ws["autorefill_cents"]):
         return (f"put money on the balance before deploying: a running tool costs ${day/100:.2f} a day and the balance is "
                 f"${bal/100:.2f}. The owner adds money at https://{config.PLATFORM_DOMAIN}/account?ws={ws['slug']} "
-                f"(or `bh billing topup` / the MCP topup tool, once a card is on file). $20 covers {_months_words(2000, day)} of one tool.")
+                f"(or ask your agent for a secure payment link). $20 covers about {2000//billing.monthly_rate(ws)} months of one tool at the current rate.")
     return None
 
 
@@ -1947,8 +1985,8 @@ def prices(request: Request, authorization: str | None = Header(None)):
     except HTTPException:
         return sheet
     ws = _ws(u)
-    day = referrals.tool_day_for(ws, billing.TOOL_DAY)
-    if day < billing.TOOL_DAY:
+    day = billing.daily_rate(ws)
+    if billing.monthly_rate(ws) < 1000:
         sheet["your_tool_day"] = day
         sheet["words"].append(f"this workspace: half price, ${day/100:.2f} a day per tool, until "
                               f"{time.strftime('%Y-%m-%d', time.gmtime(ws['discount_until']))} (referral)")
@@ -1962,10 +2000,10 @@ def billing_status(request: Request, limit: int = 30, authorization: str | None 
     ws = _ws(u)
     with db.conn() as c:
         running = sum(1 for t in c.execute("SELECT * FROM tools WHERE workspace_id=?", (ws["id"],)) if deploy.status(t)["state"] == "running")
-    day = referrals.tool_day_for(ws, billing.TOOL_DAY)       # half price while a referral discount lasts
+    day = billing.daily_rate(ws)       # half price while a referral discount lasts
     return {"workspace": ws["slug"], "balance_cents": billing.balance(ws["id"]), "paused": bool(ws["paused"]),
             "card_on_file": bool(ws["stripe_pm"]), "autorefill_cents": ws["autorefill_cents"], "autorefill_cap_cents": ws["autorefill_cap_cents"],
-            "running_tools": running, "burn_cents_per_day": running * day, "tool_day_cents": day,
+            "running_tools": running, "burn_cents_per_day": running * day, "tool_day_cents": day, "tool_month_cents": billing.monthly_rate(ws),
             "days_left": (billing.balance(ws["id"]) // (running * day)) if running else None,
             "ledger": billing.ledger(ws["id"], limit)}
 
@@ -1996,13 +2034,12 @@ def billing_topup(request: Request, body: dict, authorization: str | None = Head
     if not confirm:
         quote = _bill(billing.quote_topup, ws, cents, u["email"], body.get("operation_id"))
         return {"dry_run": True, **quote, "cents": cents, "card_on_file": bool(ws["stripe_pm"]), "balance_after_cents": billing.balance(ws["id"]) + (0 if quote["payment_status"] == "succeeded" else cents),
-                "message": ("This payment already succeeded; it will not charge again." if quote["payment_status"] == "succeeded" else f"Charge ${cents/100:.2f} to the card on file and add it to the balance." if ws["stripe_pm"]
-                            else f"Add ${cents/100:.2f} to the balance. There is no card on file yet, so this needs `bh billing card` first.")}
-    bal = _bill(billing.charge_card, ws, cents, f"top-up by {u['email']}", u["email"], body.get("operation_id"))
-    if ws["paused"] and bal > 0:
-        billing.resume(ws)
-    db.audit(u["email"], "billing.topup", None, {"cents": cents}, ws["id"])
-    return {"dry_run": False, "operation_id": body["operation_id"], "cents": cents, "balance_cents": bal, "resumed": bool(ws["paused"])}
+                "message": ("This payment already succeeded; it will not charge again." if quote['payment_status']=='succeeded'
+                            else f"Add ${cents/100:.2f} of hosting credit through secure Stripe checkout. Confirm to get the payment link; no card is charged until checkout is completed.")}
+
+    result = _bill(checkout.start, ws, cents, u['email'], body.get('operation_id'))
+    db.audit(u['email'], 'billing.checkout', None, {'cents':cents},ws['id'])
+    return {'dry_run':False,'cents':cents,**result}
 
 
 @app.post("/api/billing/autorefill")
