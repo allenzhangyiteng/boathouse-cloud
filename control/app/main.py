@@ -107,7 +107,7 @@ async def _resource_loop():
 
 
 async def _meter_loop():
-    """Once an hour, charge today's running tools (idempotent per tool per day)."""
+    """Once an hour, charge today's active organizations (idempotent per organization per day)."""
     await asyncio.sleep(60)
     while True:
         try:
@@ -692,6 +692,8 @@ def create_tool(request: Request, body: dict, authorization: str | None = Header
         c.execute("BEGIN IMMEDIATE")
         if c.execute("SELECT 1 FROM tools WHERE workspace_id=? AND slug=?", (ws["id"], slug)).fetchone():
             raise HTTPException(409, "tool exists")
+        if c.execute("SELECT COUNT(*) FROM tools WHERE workspace_id=?", (ws["id"],)).fetchone()[0] >= config.PLAN_TOOLS:
+            raise HTTPException(409, "Your organization includes up to five tools, including stopped tools. Reuse an existing tool or contact support for a larger plan. Nothing has been charged.")
         kept = c.execute("SELECT * FROM tool_keepsakes WHERE workspace_id=? AND slug=?", (ws["id"], slug)).fetchone()
         c.execute("""INSERT INTO tools (id, workspace_id, slug, name, default_access, default_role, current_release_id,
                      signing_key, db_password, created, created_by, resource_key, default_tier) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
@@ -890,7 +892,7 @@ def _deploy_gate(ws) -> str | None:
     if bal < day and not (ws["stripe_pm"] and ws["autorefill_cents"]):
         return (f"put money on the balance before deploying: a running tool costs ${day/100:.2f} a day and the balance is "
                 f"${bal/100:.2f}. The owner adds money at https://{config.PLATFORM_DOMAIN}/account?ws={ws['slug']} "
-                f"(or ask your agent for a secure payment link). $20 covers about {2000//billing.monthly_rate(ws)} months of one tool at the current rate.")
+                f"(or ask your agent for a secure payment link). $20 covers about {2000//billing.monthly_rate(ws)} months for your organization, including up to five lightweight tools, at the current rate.")
     return None
 
 
@@ -2019,7 +2021,7 @@ def prices(request: Request, authorization: str | None = Header(None)):
     day = billing.daily_rate(ws)
     if billing.monthly_rate(ws) < 1000:
         sheet["your_tool_day"] = day
-        sheet["words"].append(f"this workspace: half price, ${day/100:.2f} a day per tool, until "
+        sheet["words"].append(f"this organization: half price, ${day/100:.2f} a day in total, until "
                               f"{time.strftime('%Y-%m-%d', time.gmtime(ws['discount_until']))} (referral)")
     return sheet
 
@@ -2034,8 +2036,11 @@ def billing_status(request: Request, limit: int = 30, authorization: str | None 
     day = billing.daily_rate(ws)       # half price while a referral discount lasts
     return {"workspace": ws["slug"], "balance_cents": billing.balance(ws["id"]), "paused": bool(ws["paused"]),
             "card_on_file": bool(ws["stripe_pm"]), "autorefill_cents": ws["autorefill_cents"], "autorefill_cap_cents": ws["autorefill_cap_cents"],
-            "running_tools": running, "burn_cents_per_day": running * day, "tool_day_cents": day, "tool_month_cents": billing.monthly_rate(ws),
-            "days_left": (billing.balance(ws["id"]) // (running * day)) if running else None,
+            "running_tools": running, "burn_cents_per_day": day if running else 0, "organization_day_cents": day, "organization_month_cents": billing.monthly_rate(ws),
+            "tool_day_cents": day, "tool_month_cents": billing.monthly_rate(ws), "included_tools": config.PLAN_TOOLS,
+            "plan": billing.plan_limits(),
+            "organization_usage": resources.organization_usage(ws['id']),
+            "days_left": (billing.balance(ws["id"]) // day) if running else None,
             "ledger": billing.ledger(ws["id"], limit)}
 
 

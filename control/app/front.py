@@ -733,7 +733,7 @@ def _view(email: str, memberships, m, notice: str | None = None, error: str | No
                       "release": dict(rel) if rel else None, "default_access": t["default_access"],
                       "default_tier": t["default_tier"], "grants": grants, "usage": resources.current(t) if config.RESOURCE_GUARD else None})
     balance = billing.balance(ws["id"])
-    burn = running * billing.daily_rate(ws)     # the workspace's own rate (half price on a referral)
+    burn = billing.daily_rate(ws) if running else 0
     return {
         "csrf": auth.csrf_token(CSRF), "notice": notice, "error": error,
         "memberships": memberships, "my_role": "owner",
@@ -743,6 +743,7 @@ def _view(email: str, memberships, m, notice: str | None = None, error: str | No
         "pending_payment": billing.pending_payment(ws),
         "autorefill_cents": ws["autorefill_cents"], "autorefill_cap_cents": ws["autorefill_cap_cents"],
         "running": running, "burn_cents": burn, "days_left": (balance // burn) if burn else None,
+        "organization_usage": resources.organization_usage(ws['id']),
         "ledger": billing.ledger(ws["id"], 10), "keys": keys, "people": people,
         "free_address": f"{ws['slug']}.{config.PLATFORM_DOMAIN}",
         "domains": [dict(d) for d in hosts.workspace_domains(ws["id"])], "tools": shown,

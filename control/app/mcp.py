@@ -825,7 +825,7 @@ TOOLS: list[tuple[str, str, dict, Handler]] = [
      _schema({}), t_billing),
 
     ("prices",
-     "What Boathouse charges, in plain words: per running tool per month, storage, and the domain margin.",
+     "What Boathouse charges, in plain words: one organization plan for up to five lightweight tools, shared limits, storage, and the domain margin.",
      _schema({}), t_prices),
 
     ("referral",

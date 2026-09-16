@@ -126,7 +126,7 @@ def _paid_usage(c, workspace_id):
                 funds.append([remaining,is_cash])
         elif amount < 0:
             remaining = -amount
-            eligible = r['kind']=='charge' and (r['ref'] or '').startswith('meter:') and r['rowid']>boundary
+            eligible = r['kind']=='charge' and (r['ref'] or '').startswith(('meter:', 'organization-meter:')) and r['rowid']>boundary
             while funds and remaining:
                 fund = funds[0]
                 used = min(fund[0],remaining)

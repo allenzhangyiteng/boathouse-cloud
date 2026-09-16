@@ -39,7 +39,30 @@ def limits(tool):
 def ensure(tool):
     from . import deploy
     row=limits(tool)
+    with db.conn() as c:
+        allocated=c.execute('SELECT COALESCE(SUM(limit_bytes),0), COALESCE(SUM(CASE WHEN approved_by IS NOT NULL AND limit_bytes>? THEN limit_bytes-? ELSE 0 END),0) FROM resource_limits WHERE workspace_id=?',
+                            (GIB,GIB,tool['workspace_id'])).fetchone()
+    if allocated[0] > config.PLAN_TOOLS*GIB + allocated[1]:
+        raise ResourceError('Your organization has used its saved-data allocations, including deleted tools whose data was kept. Restore an existing tool or ask your agent to review retained data before approving a permanent cleanup. Nothing has been deleted or charged.')
     return broker('POST','/resources/'+deploy.resource_key(tool),{'limit_bytes':row['limit_bytes']})
+
+def ensure_organization(workspace_id):
+    return broker('POST','/organizations/'+workspace_id,{})
+
+def organization_usage(workspace_id):
+    if not config.RESOURCE_GUARD:
+        return {'enforced':False,'message':'Shared resource limits require the host resource service.'}
+    try:
+        result=broker('GET','/organizations/'+workspace_id)
+    except ResourceError:
+        return {'enforced':False,'message':'Usage is temporarily unavailable. Your current limits still apply.'}
+    percent=round(result['memory_bytes']/result['memory_limit_bytes']*100,1)
+    result['memory_percent']=percent
+    result['message']=('Your organization is close to its shared memory limit. Ask your agent to reduce usage or contact support for a larger plan.' if percent>=80 else 'Your tools share one computing allowance. Static websites usually use very little.')
+    if result.get('oom_kills'):
+        result['message']='One or more processes have reached the shared memory limit and been stopped. Ask your agent to check app logs and reduce usage, or contact support for a larger plan. Stored data is kept.'
+    result.pop('slice',None)
+    return result
 
 def measure(tool):
     from . import deploy
@@ -64,6 +87,8 @@ def public(row):
             'storage_limit_bytes':row['limit_bytes'],'storage_percent':percent,
             'memory_bytes':row.get('memory_bytes'),'memory_limit_bytes':512*1024**2,
             'cpu_percent':row.get('cpu_percent'),'cpu_limit_cores':config.TOOL_CPUS,
+            'organization_shared_memory_bytes':config.PLAN_MEMORY_BYTES,
+            'organization_shared_cpu_cores':config.PLAN_CPU_PERCENT/100,
             'sampled_at':row.get('sampled_at'),'sample_stale':not row.get('sampled_at') or time.time()-row['sampled_at']>config.RESOURCE_INTERVAL*3,
             'included_storage_bytes':GIB,'extra_storage_cents_per_gb_month':25,
             'upgrade_requires_approval':True,'hard_limits_enabled':config.RESOURCE_GUARD}
@@ -83,6 +108,13 @@ def admission(tool=None,allow_paused=False):
     existing=tool is not None and any(c.name==deploy.ctr_name(tool) for c in live)
     if len(live)>=config.TOOL_MAX_RUNNING and not existing:
         raise ResourceError('This host has reached its safe app capacity. Contact support to place the app; no new hosting charge has started.')
+    if tool is not None:
+        active={x.labels.get('boathouse.workspace') for x in live}
+        active.discard(None)
+        if tool['workspace_id'] not in active and len(active)>=config.PLAN_MAX_ORGANIZATIONS:
+            raise ResourceError('This server has filled its organization capacity. Contact support before publishing; nothing has been charged.')
+        if sum(x.labels.get('boathouse.workspace')==tool['workspace_id'] for x in live)>=config.PLAN_TOOLS and not existing:
+            raise ResourceError('Your organization includes five running tools. Stop or replace an existing tool, or contact support for a larger plan.')
     if tool is not None and not allow_paused and blocked(tool): raise ResourceError(blocked(tool))
 
 def quote(tool,ws,gib,by):

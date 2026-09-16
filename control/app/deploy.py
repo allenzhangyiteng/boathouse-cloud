@@ -299,11 +299,14 @@ def _run(tool, tag: str, ws) -> str:
 
 
 def _start(c, tag: str, tool, env: dict):
+    pool = {}
     if config.RESOURCE_GUARD:
         declared=(c.images.get(tag).attrs.get('Config') or {}).get('Volumes') or {}
         allowed={'/data','/etc/nginx/conf.d','/tmp','/run','/var/cache/nginx','/root/.gunicorn'}
         if set(declared)-allowed:
             raise ValueError('The app image declares an unbounded volume. Remove its VOLUME instruction and store persistent files in DATA_DIR (/data).')
+        from . import resources
+        pool = {'cgroup_parent': resources.ensure_organization(tool['workspace_id'])['slice']}
     volumes={vol_name(tool): {'bind':'/data','mode':'rw'}}
     if config.RESOURCE_GUARD:
         from . import resources
@@ -318,6 +321,7 @@ def _start(c, tag: str, tool, env: dict):
         volumes[volume.name]={'bind':'/etc/nginx/conf.d','mode':'rw'}
     return c.containers.run(
         tag, name=ctr_name(tool), detach=True, environment=env,
+        **pool,
         network=net_name(tool), volumes=volumes,
         mem_limit=config.TOOL_MEMORY, nano_cpus=int(config.TOOL_CPUS * 1e9), pids_limit=config.TOOL_PIDS, cpu_shares=128,
         memswap_limit=config.TOOL_MEMORY,

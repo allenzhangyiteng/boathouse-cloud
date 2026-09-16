@@ -63,7 +63,7 @@ def test_metering_halves_the_rate_and_pays_the_referrer(client, monkeypatch):
     monkeypatch.setattr(billing, "resume", lambda ws: None)
     lines = billing.meter_once("2026-09-10")
     mine = [l for l in lines if l["workspace"] == "sam-ref"]
-    assert mine == [{"workspace": "sam-ref", "tool": "hello", "cents": 16, "gb": 0.0}]
+    assert mine == [{"workspace": "sam-ref", "running_tools": 1, "cents": 16, "storage_cents": 0}]
     assert billing.balance(ws["id"]) == 2000 - 16
     s = referrals.summary("maria-ref@fixture.test")
     assert s["earned_cents"] == 1 and s["unpaid_cents"] == 1 and s["referred"][0]["workspace"] == "Customer workspace 1"
@@ -96,7 +96,7 @@ def test_referral_api_and_payouts(client):
 def test_signup_page_takes_a_code_and_says_so(client):
     code = referrals.code_for("maria-ref@fixture.test")
     page = client.get(f"/signup?code={code}", headers=P).text
-    assert f'value="{code}"' in page and "Half price on every tool" in page and "of credit" not in page
+    assert f'value="{code}"' in page and "Half price on organization hosting" in page and "of credit" not in page
 
 
 def test_a_tool_deleted_and_deployed_again_is_one_tool_for_the_day(client, monkeypatch):

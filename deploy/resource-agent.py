@@ -6,6 +6,7 @@ There is no arbitrary path/command interface. Customer containers cannot access
 the socket. Set up the dedicated filesystem before starting this service.
 """
 import fcntl
+import hashlib
 import http.server
 import json
 import os
@@ -22,11 +23,42 @@ SOCKET = Path(os.environ.get('BH_GUARD_SOCKET', '/run/boathouse-guard/agent.sock
 GIB = 1024**3
 MAX_DATA = 10*GIB
 RESERVE = int(os.environ.get('BH_HOST_DISK_RESERVE', str(8*GIB)))
+UNIT_ROOT = Path('/etc/systemd/system')
+CGROUP_ROOT = Path('/sys/fs/cgroup/boathouse.slice')
+
+def organization(workspace,create=True):
+    """A kernel-enforced parent for all runtime containers in one organization.
+
+    Only a derived slice name can be managed; no caller-supplied unit, path or
+    resource settings are accepted. Persistent units restore limits on reboot.
+    """
+    if not re.fullmatch(r'ws_[a-z0-9]{1,64}',workspace):
+        raise ValueError('Invalid organization identity.')
+    name='boathouse-org'+hashlib.sha256(workspace.encode()).hexdigest()[:24]+'.slice'
+    folder=CGROUP_ROOT/name
+    if not create and not folder.exists():
+        return {'slice':name,'enforced':False,'memory_bytes':0,'memory_limit_bytes':536870912,'cpu_limit_cores':0.5,'oom_kills':0}
+    body='[Unit]\nDescription=Boat House organization runtime\n[Slice]\nMemoryAccounting=yes\nCPUAccounting=yes\nMemoryMax=536870912\nMemorySwapMax=0\nCPUQuota=50%\nTasksMax=1024\n'
+    path=UNIT_ROOT/name
+    if path.is_symlink(): raise ValueError('Invalid organization unit.')
+    if create and (not path.exists() or path.read_text()!=body):
+        tmp=path.with_suffix('.slice.new')
+        tmp.write_text(body);tmp.chmod(0o644);tmp.replace(path)
+        command(['systemctl','daemon-reload'])
+    if create: command(['systemctl','start',name])
+    if (folder/'memory.max').read_text().strip()!='536870912' or (folder/'memory.swap.max').read_text().strip()!='0':
+        raise RuntimeError('The shared memory limit is not enforced; publishing is disabled.')
+    quota,period=map(int,(folder/'cpu.max').read_text().split())
+    if quota/period != 0.5: raise RuntimeError('The shared compute limit is not enforced; publishing is disabled.')
+    events=dict(line.split() for line in (folder/'memory.events').read_text().splitlines())
+    return {'slice':name,'enforced':True,'memory_limit_bytes':536870912,
+            'memory_bytes':int((folder/'memory.current').read_text()),'cpu_limit_cores':0.5,
+            'oom_kills':int(events.get('oom_kill','0'))}
 
 def command(args):
     p = subprocess.run(args, capture_output=True, text=True, timeout=30)
     if p.returncode:
-        raise RuntimeError('Storage operation failed; the operator must inspect the resource service.')
+        raise RuntimeError('Resource operation failed; the operator must inspect the resource service.')
     return p.stdout.strip()
 
 def filesystem():
@@ -130,6 +162,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def handle_request(self):
         try:
             if self.path=='/health' and self.command=='GET': result=filesystem()
+            elif self.path.startswith('/organizations/') and self.command in ('POST','GET'):
+                result=organization(self.path.removeprefix('/organizations/'),create=self.command=='POST')
             elif self.path.startswith('/resources/'):
                 resource=self.path.removeprefix('/resources/')
                 if self.command=='GET': result=allocation(resource)

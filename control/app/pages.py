@@ -294,17 +294,17 @@ def signup(platform: str, csrf: str, error: str | None = None, name: str = "", e
 <label>Email<input type=email name=email value="{_e(email)}" required autofocus autocomplete=email placeholder="you@example.com"></label>
 <label>App or business name<input name=workspace value="{_e(name)}" required minlength=3 maxlength=80 autocomplete=organization placeholder="e.g. Oak Street Studio" aria-describedby=account-name-help></label>
 <small id=account-name-help>A name for your apps in Boat House. You can keep several apps together here.</small>
-<details class=optional-field{referral_open}><summary>Have a referral code?</summary><label>Referral code<input name=code value="{_e(code)}" placeholder="BH-XXXXXXXXXX" autocomplete=off style="text-transform:uppercase"><small>Half price on every tool for your first 60 days.</small></label></details>
+<details class=optional-field{referral_open}><summary>Have a referral code?</summary><label>Referral code<input name=code value="{_e(code)}" placeholder="BH-XXXXXXXXXX" autocomplete=off style="text-transform:uppercase"><small>Half price on organization hosting for your first 60 days.</small></label></details>
 <button>Create account</button><p class=form-note>We’ll email you a secure link to finish. No payment card needed.</p>
 </form>{_doors("up")}
-<p class=auth-fineprint>Managed hosting starts at $10 per app per month. Add credit when you’re ready to publish. By continuing, you agree to our <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
+<p class=auth-fineprint>Managed hosting is $10 per organization per month for up to five lightweight tools. Add credit when you’re ready to publish. By continuing, you agree to our <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
 </div>''', nav='<a href="/demo">How it works</a><a href="mailto:support@example.com">Get help</a>')
     if partner:
         result = result.replace('Step 1 of 3 · Your account', 'Partner program · Free to join').replace('Create your account</h1>', 'Become a Boat House partner</h1>')
         result = result.replace('Get your app online and share it with your team.', 'Get your own link, QR code, and referral code. Earn 10% for the lifetime of each customer you bring in.')
         result = result.replace('<form method=post action=/signup>', '<form method=post action=/signup><input type=hidden name=partner value=1>')
         result = result.replace('App or business name<input', 'Business or display name<input').replace('A name for your apps in Boat House. You can keep several apps together here.', 'A name for your partner account. No app or hosting purchase required.')
-        result = result.replace('Managed hosting starts at $10 per app per month. Add credit when you’re ready to publish.', 'Joining is free. Payouts are reviewed monthly, with a $10 minimum and smaller balances rolling over.')
+        result = result.replace('Managed hosting is $10 per organization per month for up to five lightweight tools. Add credit when you’re ready to publish.', 'Joining is free. Payouts are reviewed monthly, with a $10 minimum and smaller balances rolling over.')
         result = result.replace('href="/login">Sign in', 'href="/login?next=%2Fpartners">Sign in')
     return result
 
@@ -392,7 +392,9 @@ def _money_block(v: dict, back: str) -> str:
     cap = v.get("autorefill_cap_cents") or 0
     refill_line = (f'Auto-refill adds {_money(refill)} when credit falls below $5, with a {_money(cap)} monthly cap.' if refill else 'Auto-refill is off. Every top-up needs your approval on Stripe.')
     refill_form = (f'<form method=post action="{a}/autorefill">{csrf}<input type=hidden name=dollars value=20><input type=hidden name=cap value=100><button class=s>{"Keep" if refill else "Enable"} auto-refill: $20, up to $100/month</button></form>' if v.get('card_on_file') else '<p>Optional auto-refill becomes available after your first successful card payment.</p>')
-    return f'''{recovery}<p>Add $20 to run one app for about {_months20(v)}.</p>
+    usage = v.get('organization_usage', {})
+    limits = f'<p><small>{_e(usage.get("message", "Up to five lightweight tools share one plan."))}</small></p><details><summary>What counts as lightweight?</summary><p>Small websites, forms, trackers, calculators and dashboards for everyday use. All five tools share 512 MB of running memory and half a CPU core. Each includes 1 GB of database and saved files. Video processing, AI model hosting, large imports and continuously busy jobs need a larger plan. Computing is capped; memory pressure can restart an app, and full storage pauses the affected tool. Existing data is kept. No automatic upgrade.</p></details>'
+    return f'''{recovery}<p>Add $20 to run your organization’s tools for about {_months20(v)}.</p>{limits}
 <form method=post action="{a}/topup">{csrf}<input type=hidden name=dollars value=20><input type=hidden name=operation_id value="{_e(quotes.get('2000', ''))}"><button{' disabled' if not quotes.get('2000') else ''}>Add $20 hosting credit</button></form>
 <p><small>Continue to Stripe to securely pay $20. Complete any bank verification there; you return here when done. Credit pays for your running apps each day. If it runs out, apps pause; their data is kept.</small></p>
 <details><summary>More credit and optional auto-refill</summary><p>{refill_line}</p>
@@ -407,14 +409,14 @@ def _balance_line(v: dict) -> str:
     if b <= 0:
         return "Your balance is $0.00. Put money on when you are ready to put something online."
     days = int(b // max(1, v.get("tool_day_cents", 33)))
-    return f"Your balance is {_money(b)}, about {days} days of one tool."
+    return f"Your balance is {_money(b)}, about {days} days of organization hosting."
 
 
 def _rate_line(v: dict) -> str:
     until = v.get("discount_until")
     if until and until > time.time():
-        return f"A tool costs $10 a month, prorated by the day in each calendar month. Yours are half price, $5 a month, until {_date(until)}, thanks to your referral code."
-    return "A tool costs $10 a month, prorated by the day in each calendar month."
+        return f"Your organization costs $10 a month for up to five lightweight tools, prorated by the day while any tool is running. Your organization is half price, $5 a month, until {_date(until)}, thanks to your referral code."
+    return "Your organization costs $10 a month for up to five lightweight tools, prorated by the day while any tool is running."
 
 
 def _referral_block(r: dict | None) -> str:
@@ -525,7 +527,7 @@ def account_member(v: dict) -> str:
 
 def _rate_note(v: dict) -> str:
     until = v.get("discount_until")
-    return f"<p><small>Half price on every tool until {_date(until)}, thanks to {_e(v.get('referred_by') or 'a referral code')}.</small></p>" if until and until > time.time() else ""
+    return f"<p><small>Half price on organization hosting until {_date(until)}, thanks to {_e(v.get('referred_by') or 'a referral code')}.</small></p>" if until and until > time.time() else ""
 
 
 def _referred_table(r: dict | None) -> str:

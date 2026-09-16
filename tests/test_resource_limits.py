@@ -18,7 +18,7 @@ def guarded(state,monkeypatch):
         key=path.rsplit('/',1)[-1]
         if method=='POST': allocations[key]={'storage_bytes':0,'limit_bytes':body['limit_bytes'],'enforced':True}
         return allocations.get(key,{'storage_bytes':0,'limit_bytes':1024**3,'enforced':True})
-    ctr=SimpleNamespace(name=deploy.ctr_name(t),start=lambda:starts.append(t['id']),stats=lambda **kw:{})
+    ctr=SimpleNamespace(labels={"boathouse.workspace":t["workspace_id"]},name=deploy.ctr_name(t),start=lambda:starts.append(t['id']),stats=lambda **kw:{})
     containers=SimpleNamespace(get=lambda name:ctr,list=lambda **kw:[ctr])
     monkeypatch.setattr(deploy,'client',lambda:SimpleNamespace(containers=containers))
     monkeypatch.setattr(deploy,'stop',lambda t:stops.append(t['id']))
@@ -56,7 +56,7 @@ def test_capacity_replay_applies_once_and_never_debits_credit(guarded):
 
 def test_host_admission_refuses_ninth_app_but_allows_update(guarded):
     t,other,_,_,_,containers=guarded
-    containers.list=lambda **kw:[SimpleNamespace(name=deploy.ctr_name(t))]+[SimpleNamespace(name='tool-'+str(n)) for n in range(7)]
+    containers.list=lambda **kw:[SimpleNamespace(name=deploy.ctr_name(t),labels={"boathouse.workspace":t["workspace_id"]})]+[SimpleNamespace(name='tool-'+str(n),labels={}) for n in range(7)]
     resources.admission(t)
     with pytest.raises(resources.ResourceError,match='safe app capacity'):resources.admission(other)
 

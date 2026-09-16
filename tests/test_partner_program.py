@@ -145,13 +145,15 @@ def test_later_cash_only_earns_when_funding_actual_hosting_debt(env):
 
 @pytest.mark.parametrize('year,month',[(2027,2),(2028,2),(2026,4),(2026,7)])
 @pytest.mark.parametrize('discount',[False,True])
-def test_calendar_month_earns_exactly_ten_percent(env,monkeypatch,year,month,discount):
+@pytest.mark.parametrize('tools_count',[1,5])
+def test_calendar_month_earns_exactly_ten_percent(env,monkeypatch,year,month,discount,tools_count):
     ws,_=env
     cash(env,5000)
     with db.conn() as c:
         c.execute('UPDATE workspaces SET discount_until=? WHERE id=?',(4102444800 if discount else 0,ws['id']))
-        c.execute('INSERT INTO tools(id,workspace_id,slug,name,signing_key,db_password,created,created_by) VALUES(?,?,?,?,?,?,?,?)',
-                  ('t_partner_month',ws['id'],'calendar','Calendar','k','p',time.time(),CUSTOMER))
+        for i in range(tools_count):
+            c.execute('INSERT INTO tools(id,workspace_id,slug,name,signing_key,db_password,created,created_by) VALUES(?,?,?,?,?,?,?,?)',
+                      ('t_partner_month'+str(i),ws['id'],'calendar'+str(i),'Calendar','k','p',time.time(),CUSTOMER))
     monkeypatch.setattr(deploy,'status',lambda *a:{'state':'running'})
     monkeypatch.setattr(billing,'_storage_gb',lambda t:0.)
     for day in range(1,calendar.monthrange(year,month)[1]+1):

@@ -22,7 +22,8 @@ from . import auth, config, db, deploy, referrals
 
 # ---- the price sheet (cents) --------------------------------------------------
 PRICES = {
-    "tool_month": 1000,         # exactly $10 for a complete calendar month
+    "organization_month": 1000,
+    "tool_month": 1000,         # deprecated compatibility alias; never multiply by tool count
     "storage_gb_month": 25,     # per GB above the first GB, database + files, metered daily
     "domain_margin": 200,       # per domain per year on top of registrar cost
     "included_gb": 1,
@@ -35,7 +36,7 @@ REFILL_BELOW = 500                                           # try the card when
 def monthly_rate(ws, date: dt.date | None = None) -> int:
     date = date or dt.datetime.now(dt.timezone.utc).date()
     stamp = dt.datetime.combine(date, dt.time(), tzinfo=dt.timezone.utc).timestamp()
-    return referrals.tool_day_for(ws, PRICES["tool_month"], now=stamp)
+    return referrals.tool_day_for(ws, PRICES["organization_month"], now=stamp)
 
 
 def daily_rate(ws, today: str | None = None) -> int:
@@ -50,15 +51,28 @@ def daily_rate(ws, today: str | None = None) -> int:
     return (date.day * month // days) - ((date.day - 1) * month // days)
 
 
+def plan_limits() -> dict:
+    return {"name": "Organization", "included_tools": config.PLAN_TOOLS,
+            "shared_memory_bytes": config.PLAN_MEMORY_BYTES,
+            "shared_cpu_cores": config.PLAN_CPU_PERCENT / 100,
+            "included_storage_bytes_per_tool": 1024**3,
+            "definition": "Small websites, forms, trackers, calculators and dashboards that respond to everyday use. Up to five tools share 512 MB of running memory and half a CPU core; each tool includes 1 GB of saved data. Video processing, AI model hosting, large imports and continuously busy jobs need a larger plan.",
+            "on_limit": "No automatic upgrade or surprise charge. Computing is capped; full storage refuses new writes and pauses the affected tool while keeping its data. Ask your agent to reduce usage or contact support for more capacity."}
+
+
 def price_sheet() -> dict:
-    return {**PRICES, "tool_day": TOOL_DAY, "currency": "usd",
+    return {**PRICES, "billing_unit": "organization", "included_tools": config.PLAN_TOOLS,
+            "organization_day": TOOL_DAY, "tool_day": TOOL_DAY, "currency": "usd",
             "billing_period": "UTC calendar month", "tool_day_is_estimate": True,
-            "words": [f"${PRICES['tool_month']/100:.2f} per running tool for a full calendar month; daily charges divide that month's price across its days (about ${TOOL_DAY/100:.2f}/day)",
-                      f"first {PRICES['included_gb']} GB of storage included; more capacity requires approval, then ${PRICES['storage_gb_month']/100:.2f} per used extra GB per month",
-                      f"domains at registrar cost plus ${PRICES['domain_margin']/100:.2f} per year, always quoted first",
-                      "stopped tools cost nothing; data is kept", "at zero balance tools pause; nothing is deleted",
-                      "sign up with someone's referral code: every tool is half price for your first 60 days",
-                      "give your code or QR to others: 10% of paid hosting usage for the customer's lifetime; monthly payouts, $10 minimum (smaller balances roll over)"]}
+            "plan": plan_limits(),
+            "words": ["$10 per organization for a full calendar month, including up to five lightweight tools; one daily charge while any tool is running, not a charge for each tool",
+                      "A static website counts as one tool. Stopped tools still count toward the five-tool allowance. No hosting charge while every tool is stopped; today's charge is not reversed.",
+                      plan_limits()["definition"], plan_limits()["on_limit"],
+                      "Each tool includes 1 GB of database and saved files. More storage requires approval, then $0.25 per used extra GB per month. Deleted tools with retained data still use storage capacity.",
+                      "Domains are registrar cost plus $2 per year, quoted separately. External AI and email services are separate.",
+                      "At zero balance tools pause; nothing is deleted. No paid resource upgrade is automatic.",
+                      "A referral code makes organization hosting half price for the first 60 days.",
+                      "Partners earn 10% of referred customers' paid hosting and storage for their lifetime; monthly payouts, $10 minimum."]}
 
 
 # ---- ledger --------------------------------------------------------------------
@@ -130,56 +144,62 @@ def _storage_gb(tool) -> float:
 
 
 def meter_once(today: str | None = None) -> list[dict]:
-    """Charge every running tool once for today. Safe to call any number of times a day."""
+    """One organization debit per UTC day, irrespective of its active tool count.
+
+    The storage measurements and accruals commit with the debit. An old per-tool
+    debit on the rollout date makes that whole organization day already paid;
+    historical entries and balances are never rewritten.
+    """
     today = today or dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
     date = dt.date.fromisoformat(today)
-    denominator = 1024 ** 3 * calendar.monthrange(date.year, date.month)[1]
+    denominator = 1024**3 * calendar.monthrange(date.year, date.month)[1]
     lines = []
     with db.conn() as c:
         workspaces = c.execute("SELECT * FROM workspaces").fetchall()
     for ws in workspaces:
         with db.conn() as c:
             tools = c.execute("SELECT * FROM tools WHERE workspace_id=?", (ws["id"],)).fetchall()
-        for t in tools:
-            if deploy.status(t)["state"] != "running":
+        running = [t for t in tools if deploy.status(t)["state"] == "running"]
+        if not running:
+            _settle(ws)
+            continue
+        ref = f"organization-meter:{ws['id']}:{today}"
+        paid_sql = "SELECT 1 FROM ledger WHERE ref=? OR (workspace_id=? AND kind='charge' AND memo LIKE ?)"
+        paid_args = (ref, ws['id'], f"%: running day {today}%")
+        with db.conn() as c:
+            if c.execute(paid_sql, paid_args).fetchone():
+                _settle(ws)
                 continue
-            ref = f"meter:{ws['id']}:{t['slug']}:{today}"      # by name: deleted and deployed again is still one tool for the day
-            with db.conn() as c:
-                # three ways this day may already be paid: the by-name ref, the older by-id ref, or any charge line that
-                # names this tool and day (rows written before the by-name ref existed, under a since-deleted tool id)
-                if c.execute("""SELECT 1 FROM ledger WHERE ref=? OR ref=? OR (workspace_id=? AND kind='charge' AND memo LIKE ?)""",
-                             (ref, f"meter:{t['id']}:{today}", ws["id"], f"{t['slug']}: running day {today}%")).fetchone():
-                    continue
-            try:
-                gb = _storage_gb(t)
-            except Exception:
-                db.audit("meter", "billing.measurement_failed", t["slug"], {"date": today}, ws["id"])
-                continue
-            extra_bytes = max(0, round(gb * 1024 ** 3) - PRICES["included_gb"] * 1024 ** 3)
-            day = daily_rate(ws, today)
-            # Serialize both accrual and the debit. Concurrent ticks must neither
-            # lose fractional storage nor count a measurement twice.
-            with db.conn() as c:
-                c.execute("BEGIN IMMEDIATE")
-                if c.execute("SELECT 1 FROM ledger WHERE ref=? OR ref=? OR (workspace_id=? AND kind='charge' AND memo LIKE ?)",
-                             (ref, f"meter:{t['id']}:{today}", ws["id"], f"{t['slug']}: running day {today}%")).fetchone():
-                    c.execute("COMMIT")
-                    continue
-                key = (ws["id"], t["resource_key"], today[:7])
-                c.execute("INSERT OR IGNORE INTO storage_accrual(workspace_id,resource_key,month) VALUES(?,?,?)", key)
-                accrued = c.execute("SELECT byte_cent_days,charged_cents FROM storage_accrual WHERE workspace_id=? AND resource_key=? AND month=?", key).fetchone()
-                numerator = accrued["byte_cent_days"] + extra_bytes * PRICES["storage_gb_month"]
-                total_storage_cents = numerator // denominator
-                storage = total_storage_cents - accrued["charged_cents"]
-                amount = day + storage
-                bal = c.execute("SELECT balance_cents FROM workspaces WHERE id=?", (ws["id"],)).fetchone()[0] - amount
-                c.execute("UPDATE workspaces SET balance_cents=? WHERE id=?", (bal, ws["id"]))
-                memo = f"{t['slug']}: running day {today}" + (" (half price)" if monthly_rate(ws, date) < PRICES["tool_month"] else "") + (f", {gb:.2f} GB" if storage else "")
-                c.execute("INSERT INTO ledger VALUES(?,?,?,?,?,?,?,?,?)", (db.new_id("l"),ws["id"],time.time(),"charge",-amount,bal,memo,ref,"meter"))
-                c.execute("UPDATE storage_accrual SET byte_cent_days=?,charged_cents=? WHERE workspace_id=? AND resource_key=? AND month=?", (numerator,total_storage_cents,*key))
-                referrals.sync(c, ws['id'])
+        try:
+            measured = [(t, _storage_gb(t)) for t in running]
+        except Exception:
+            db.audit("meter", "billing.measurement_failed", None, {"date": today}, ws['id'])
+            continue
+        with db.conn() as c:
+            c.execute("BEGIN IMMEDIATE")
+            if c.execute(paid_sql, paid_args).fetchone():
                 c.execute("COMMIT")
-            lines.append({"workspace": ws["slug"], "tool": t["slug"], "cents": amount, "gb": round(gb, 3)})
+                continue
+            storage = 0
+            for t, gb in measured:
+                extra = max(0, round(gb * 1024**3) - PRICES['included_gb'] * 1024**3)
+                key = (ws['id'], t['resource_key'], today[:7])
+                c.execute('INSERT OR IGNORE INTO storage_accrual(workspace_id,resource_key,month) VALUES(?,?,?)', key)
+                accrued = c.execute('SELECT byte_cent_days,charged_cents FROM storage_accrual WHERE workspace_id=? AND resource_key=? AND month=?', key).fetchone()
+                numerator = accrued['byte_cent_days'] + extra * PRICES['storage_gb_month']
+                total = numerator // denominator
+                storage += total - accrued['charged_cents']
+                c.execute('UPDATE storage_accrual SET byte_cent_days=?,charged_cents=? WHERE workspace_id=? AND resource_key=? AND month=?', (numerator,total,*key))
+            amount = daily_rate(ws, today) + storage
+            bal = c.execute('SELECT balance_cents FROM workspaces WHERE id=?',(ws['id'],)).fetchone()[0] - amount
+            memo = f"Organization: running day {today}; {len(running)} tools included"
+            if monthly_rate(ws,date) < PRICES['organization_month']: memo += " (half price)"
+            if storage: memo += f"; extra storage {storage} cents"
+            c.execute('UPDATE workspaces SET balance_cents=? WHERE id=?',(bal,ws['id']))
+            c.execute('INSERT INTO ledger VALUES(?,?,?,?,?,?,?,?,?)',(db.new_id('l'),ws['id'],time.time(),'charge',-amount,bal,memo,ref,'meter'))
+            referrals.sync(c, ws['id'])
+            c.execute('COMMIT')
+        lines.append({'workspace':ws['slug'],'running_tools':len(running),'cents':amount,'storage_cents':storage})
         _settle(ws)
     return lines
 
