@@ -4,12 +4,13 @@ slug: vercel-password-protection
 description: Compare Vercel deployment protection with app sign-in. Understand access options and what to check when hosting a private team tool.
 keyword: vercel password protection cost, vercel password protect site, vercel password protection free
 date: 2026-09-08
+updated: 2026-09-16
 category: Comparisons
 
 > Password Protection on Vercel is part of the Advanced Deployment Protection add-on: $150 a month on Pro, included on Enterprise, not available on Hobby, with a 30-day minimum.
 > The free option, Vercel Authentication, only admits members of your Vercel team, so every colleague needs a Vercel seat.
 > A shared password is not a login. It cannot tell you who changed what, and it cannot remove one person.
-> For a small team tool, Boat House gives each person their own login with a role for $10 a month a tool.
+> For a small team tool, Boat House gives each person their own login with a role for $10 a month per organization for up to five lightweight tools.
 
 ## The short answer
 
@@ -48,7 +49,7 @@ Real accounts, real roles, good libraries. Free tiers cover a small team. You no
 
 Caddy or nginx with basic auth in front of the app. Cheapest in dollars, and now you run a server: TLS, updates, backups, the outage. Fine for developers who like that work.
 
-### Boat House, $10 a month a tool
+### Boat House, $10 a month per organization for up to five lightweight tools
 
 Boat House was built for the internal-tool case. Every tool sits behind Boat House sign-in, with named accounts and three tiers, viewer, editor and admin, and a Postgres database and file storage included. You do not write the auth; it is the front door of the platform.
 
@@ -57,13 +58,13 @@ Boat House was built for the internal-tool case. Every tool sits behind Boat Hou
 - `bh unshare tool teammate@example.com` removes Alex the day Alex leaves. Nobody else's password changes.
 - `bh domain point company.com --to tool` puts it on your domain; `bh domain buy` buys one if you do not have it.
 
-The price is [$10 a month a tool](/#pricing), no per-person charge, no card to sign up. Everything is a command, so Claude Code or Codex can do the deploy and the sharing without anyone opening a dashboard.
+The price is [$10 a month per organization for up to five lightweight tools](/#pricing), no per-person charge, no card to sign up. Everything is a command, so Claude Code or Codex can do the deploy and the sharing without anyone opening a dashboard.
 
 ## Side by side
 
 | | Vercel Password Protection | Vercel Authentication | Boat House |
 |---|---|---|---|
-| Monthly cost | $150 add-on on Pro ($20 seat), Enterprise included | Free, but a Vercel seat per viewer | $10 a tool |
+| Monthly cost | $150 add-on on Pro ($20 seat), Enterprise included | Free, but a Vercel seat per viewer | $10 per organization |
 | Who can open it | Anyone with the one password | Members of your Vercel team | Named people you invited |
 | Roles | None | Vercel roles, not app roles | Viewer, editor, admin |
 | Remove one person | Change the password for everyone | Remove their Vercel seat | `bh unshare` |

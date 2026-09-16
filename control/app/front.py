@@ -321,7 +321,7 @@ def llms_txt(request: Request):
         raise HTTPException(404)
     p = config.PLATFORM_DOMAIN
     return PlainTextResponse(f"""# Boat House
-> The Google Doc for small software: an agent puts a tool online with one command, shares it like a document, $10 a month per running tool.
+> The Google Doc for small software: an agent puts a tool online with one command, shares it like a document, $10 a month per organization for up to five lightweight tools.
 
 - [How to use bh, every command](https://{p}/skill.md): the skill file, markdown
 - [Install](https://{p}/install.sh): curl -fsSL https://{p}/install.sh | sh -s -- <one-time connection code>

@@ -10,7 +10,7 @@ The software is licensed under [Apache 2.0](LICENSE). You can run it on your own
 |---|---|---|
 | Software | Free under Apache 2.0 | Same open-source foundation |
 | Infrastructure and operations | You provide and maintain them | Boat House operates them |
-| Price | Your server, domain and provider costs | $10 per running tool per month; domain purchases are separate |
+| Price | Your server, domain and provider costs | $10 per organization per month for up to five lightweight tools; domain purchases are separate |
 | Getting started | [Self-hosting guide](docs/self-hosting.md) | Sign up, confirm email, copy the connection into your agent |
 
 ## What is included

@@ -4,6 +4,7 @@ slug: replit-deployment-cost
 description: Understand Replit deployment billing, hosting options, and the costs to check before putting a small team app online.
 keyword: replit deployment cost, how much does replit deployment cost, replit app hosting cost, replit alternatives for hosting
 date: 2026-09-08
+updated: 2026-09-16
 category: Comparisons
 
 > Replit hosting is billed on top of the plan. Core is $25 a month ($20 yearly) and includes $25 of usage credit that hosting draws from.
@@ -61,7 +62,7 @@ If you build in Replit and only ever deploy from Replit, the bundle is fair: age
 
 Boat House is a host for small software built by an agent. It has no builder of its own and does not need one: Claude Code, Codex or Cursor runs `bh deploy` in the project folder and the tool is live behind a login with a Postgres database and file storage. Sharing is an email: `bh share tool teammate@example.com --tier editor`. A domain is `bh domain buy company.com --yes`. Leaving is `bh export tool`, one file with code and data.
 
-The price is [$10 a month a tool](/#pricing), always on, no seats, no usage meter for ordinary use. For the ten-person example above that is $10 instead of $40 to $50, and for three tools it is $30 instead of roughly $85.
+The price is [$10 a month per organization for up to five lightweight tools](/#pricing), no per-person seats, with a shared compute allowance and 1 GB of saved data per tool. For the ten-person example above that is $10 instead of $40 to $50, and for three lightweight tools it is $10 instead of roughly $85.
 
 | | Replit, one tool | Boat House, one tool |
 |---|---|---|

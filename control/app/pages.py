@@ -423,7 +423,7 @@ def _referral_block(r: dict | None) -> str:
     if not r:
         return ""
     earned = f" So far: {_money(r['earned_cents'])} earned, {_money(r['unpaid_cents'])} not yet paid out." if r.get("earned_cents") else ""
-    return f"""<div class=referral style="margin-top:22px;padding-top:18px;border-top:1px solid #E5EDF5"><p><strong>Earn 10% for every customer you bring in.</strong> Share your code <code>{_e(r['code'])}</code>, link, or QR. They get half-price app hosting for 60 days. You earn 10% of their paid hosting and storage usage for their lifetime. Monthly cash payouts start at $10; smaller balances roll over.{earned}</p><a class="btn s" href="/partners">Open partner dashboard</a></div>"""
+    return f"""<div class=referral style="margin-top:22px;padding-top:18px;border-top:1px solid #E5EDF5"><p><strong>Earn 10% for every customer you bring in.</strong> Share your code <code>{_e(r['code'])}</code>, link, or QR. They get half-price organization hosting for 60 days. You earn 10% of their paid hosting and storage usage for their lifetime. Monthly cash payouts start at $10; smaller balances roll over.{earned}</p><a class="btn s" href="/partners">Open partner dashboard</a></div>"""
 
 
 def welcome(v: dict) -> str:
@@ -592,7 +592,7 @@ def account(v: dict) -> str:
 {notice}{error}
 <div class=strip>
 <div><b>{_money(v['balance_cents'])}</b><span>balance{' · paused' if v['paused'] else ''}</span></div>
-<div><b>{v['running']}</b><span>tool{'' if v['running'] == 1 else 's'} running</span></div>
+<div><b>{len(v['tools'])} / 5</b><span>tools in your plan · {v['running']} running</span></div>
 <div><b>{_money(v['burn_cents'])}</b><span>a day · {left}</span></div>
 <div><b>{'yes' if v['card_on_file'] else 'no'}</b><span>card on file · auto-refill {refill}</span></div>
 </div>

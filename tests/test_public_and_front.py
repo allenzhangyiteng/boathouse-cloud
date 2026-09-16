@@ -145,7 +145,7 @@ def test_a_guest_key_works_on_the_shared_tool_and_nowhere_else(setup, client):
 def test_terms_and_privacy_pages_exist_and_are_linked(client):
     P = {"host": PLAT}
     t = client.get("/terms", headers=P)
-    assert t.status_code == 200 and "Terms of Service" in t.text and "$10 per running tool per month" in t.text and "Your card is charged only on your click" in t.text
+    assert t.status_code == 200 and "Terms of Service" in t.text and "$10 per organization for a full UTC calendar month" in t.text and "Your card is charged only on your click" in t.text
     p = client.get("/privacy", headers=P)
     assert p.status_code == 200 and "Privacy Policy" in p.text and "Stripe" in p.text and "30 days" in p.text and "New York" in p.text
     s = client.get("/signup", headers=P).text

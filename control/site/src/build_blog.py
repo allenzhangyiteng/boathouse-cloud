@@ -181,7 +181,7 @@ def article_page(meta, body_lines, others):
             f'<h1>{inline(meta["title"])}</h1><p class="lead">{inline(meta["description"])}</p>'
             f'<p class="byline"><span>{AUTHOR["name"]}, {AUTHOR["role"]}</span><span>{date.strftime("%B %-d, %Y")}</span><span>{mins} min read</span></p>'
             f'{tk}<div class="prose">{"".join(body)}</div>{faq_html}'
-            f'<aside class="cta"><h2>Put your tool online, with logins, today.</h2><p>Boat House is the Google Doc for small software: your agent deploys it, gives it a login and a database, and shares it by email. $10 a month a tool, no card to sign up. Connect your agent in about 90 seconds after email confirmation; funding and app builds take extra time.</p><a class="button" href="/signup">Get started</a> <a class="more" href="/docs">Read the docs</a></aside>'
+            f'<aside class="cta"><h2>Put your tool online, with logins, today.</h2><p>Boat House is the Google Doc for small software: your agent deploys it, gives it a login and a database, and shares it by email. $10 a month per organization for up to five lightweight tools, no card to sign up. Connect your agent in about 90 seconds after email confirmation; funding and app builds take extra time.</p><a class="button" href="/signup">Get started</a> <a class="more" href="/docs">Read the docs</a></aside>'
             f'{rel_html}</div></article></main>')
     return head + header + main + footer + "</body>\n</html>\n", n
 

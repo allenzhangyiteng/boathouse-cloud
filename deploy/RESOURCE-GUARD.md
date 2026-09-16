@@ -44,3 +44,28 @@ callbacks share a durable operation and ledger reference. Auto-refill is an
 explicit opt-in with a monthly cap. Use Stripe test mode and a separate ledger
 for success, decline, authentication and replay testing; never replace live
 production Stripe keys with test keys.
+
+
+## Organization plan
+
+Managed pricing is one $10 calendar-month charge per organization, including up
+to five tools. Static and stopped tools count toward this limit. New organization
+debits use `organization-meter:` references; partner commissions recognize both
+new and legacy references. A legacy debit on the rollout day prevents another
+organization charge that day. Historical charges and balances are not rewritten.
+
+With the guard enabled, all app containers in an organization must use its
+broker-issued systemd slice. It enforces 512 MiB memory, zero swap, 50% CPU and
+1,024 tasks in aggregate. Per-container limits still apply within the pool.
+The host must use systemd and cgroup v2. Install the updated broker before the
+control service and recreate existing containers into their new parent one at a
+time. Slice unit files persist across reboot. Do not advertise pooled limits
+on hosts where the broker is disabled.
+
+The conservative default remains eight running apps. A measured light-workload
+mix can support a configured limit of 30 tools across six active organizations
+on the managed 4-vCPU, 8-GB host. This is an admission ceiling, not a guarantee
+for arbitrary workloads. The quota filesystem must reserve all data allocations
+plus the build allowance; a 20-GiB pool is insufficient for 30 one-GiB tools.
+Reassess storage, database connections, backups, CPU and memory before increasing
+`BH_MAX_RUNNING_TOOLS` or `BH_MAX_ACTIVE_ORGANIZATIONS` on another host.

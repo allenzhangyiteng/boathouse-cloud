@@ -4,6 +4,7 @@ slug: lovable-custom-domain-and-login
 description: A guide to Lovable custom domains, publishing, and app access. Understand which settings affect your URL and which protect your app.
 keyword: lovable custom domain, lovable login with username and password, lovable app hosting
 date: 2026-09-08
+updated: 2026-09-16
 category: Comparisons
 
 > A custom domain on Lovable needs a paid plan, Pro at $25 a month or Business at $50. The domain itself is not charged extra.
@@ -55,7 +56,7 @@ Lovable lets you export the code to GitHub. Once it is in a folder, the app is j
 - `bh domain buy company.com --yes` buys and points a domain from the terminal, or `bh domain point` uses one you have.
 - `bh export app` gives you the code and the data in one file if you ever want to leave.
 
-The price is [$10 a month a tool](/#pricing), no per-person charge, no card to sign up.
+The price is [$10 a month per organization for up to five lightweight tools](/#pricing), no per-person charge, no card to sign up.
 
 ## Cost for a 15-person office, side by side
 

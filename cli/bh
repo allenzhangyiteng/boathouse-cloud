@@ -1027,6 +1027,12 @@ def cmd_billing(a):
         print(f"workspace {b['workspace']}: balance {_money(b['balance_cents'])} ({state}); {b['running_tools']} running tool(s) burn {_money(b['burn_cents_per_day'])}/day"
               + (f", about {b['days_left']} days left" if b["days_left"] is not None else ""))
         print("card on file: " + ("yes" if b["card_on_file"] else "no (bh billing card)") + (f"; auto-refill {_money(b['autorefill_cents'])}" + (f" up to {_money(b['autorefill_cap_cents'])}/month" if b["autorefill_cap_cents"] else "") if b["autorefill_cents"] else ""))
+        if b.get("plan"):
+            print(f"organization plan: {_money(b['organization_month_cents'])}/month, up to {b['included_tools']} lightweight tools")
+            usage = b.get("organization_usage") or {}
+            if usage.get("enforced"):
+                print(f"shared app memory: {usage['memory_bytes']/1024**2:.1f} of {usage['memory_limit_bytes']/1024**2:g} MB; compute: {usage['cpu_limit_cores']:g} CPU core")
+            if usage.get("message"): print(usage["message"])
         if b["ledger"]:
             print(f"{'WHEN':<18}{'KIND':<8}{'AMOUNT':>10}{'BALANCE':>10}  MEMO")
             for l in b["ledger"]:

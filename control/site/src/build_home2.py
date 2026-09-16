@@ -15,7 +15,7 @@ rep('<a href="#versus">$140 or $10</a>', '<a href="#versus">$65 or $10</a>')
 rep('<p class="lead">Five minutes to set up. After that your agent does the rest: no dashboards, no second key to paste. Share it the way you share a Google Doc.</p>',
     '<p class="lead">The AI-native cloud to share and own the software you build. Your Claude Code, Codex or Cursor writes the tool; Boat House puts it online, logs in everyone you name, and keeps it yours.</p>')
 rep('<p class="proof">Replaces six subscriptions that add up to <em>$140.92</em> a month. Boat House is <em>$10</em>, everything included.</p>',
-    '<p class="proof"><em>$10</em> a tool a month. <em>$0</em> a person. About 90 seconds to connect your agent after email confirmation. Funding and app builds take extra time.</p>')
+    '<p class="proof"><em>$10</em> a month for up to five lightweight tools. <em>$0</em> a person. About 90 seconds to connect your agent after email confirmation. Funding and app builds take extra time.</p>')
 rep('''    <h2>Boat House is where your agent puts small software online.</h2>
     <p class="lead center">One account. One line pasted into your agent. Shared like a doc, with whoever you say. Yours to keep: the code, the data, the address.</p>''',
     '''    <h2 id="why" class="whyh">Why people choose Boat House.</h2>
@@ -26,7 +26,7 @@ rep('''    <h2>Boat House is where your agent puts small software online.</h2>
         <li>No dashboards, no keys, no tickets</li>
         <li>If you can run a business, you can run this</li></ul></div>
       <div class="glass g2"><div class="gk">02</div><h3>Cheap</h3><ul>
-        <li>$10 a tool a month</li>
+        <li>Five lightweight tools for $10 a month</li>
         <li>Everyone who uses it: $0</li>
         <li>The usual stack: four accounts, about $65</li>
         <li>Team platforms: $500 and up for 25 people</li></ul></div>
@@ -62,13 +62,13 @@ rep('<div class="vrow sum"><div class="mark"></div><div class="name"><span>Every
 rep('<h3 style="font-size:22px">Fourteen months of Boat House for one month the usual way.</h3>', '<h3 style="font-size:22px">Six months of Boat House for one month the usual way.</h3>')
 rep('<p class="text" style="max-width:480px">Even the cheapest version of the usual way, one seat and every free plan, comes to $21.92 a month. And it has no nightly backups, and only one person who can put changes online.</p>',
     '<p class="text" style="max-width:480px">Team platforms charge per person instead. For twenty-five people: Softr $99 to $329, Retool $130 to $180, Airtable $500, Claude Team $750 a month. Boat House is $10, because people are free.</p>')
-rep('<h2 class="big">$140.92 a month, or $10.</h2>', '<h2 class="big">$10 a tool a month. $0 a person.</h2>')
+rep('<h2 class="big">$140.92 a month, or $10.</h2>', '<h2 class="big">Five lightweight tools for $10 a month. $0 a person.</h2>')
 rep('<div class="stat rv"><b data-count="140.92" data-prefix="$">$140.92</b><p>what six subscriptions charge for one tracker, two people who can change it, forty who use it</p></div>',
     '<div class="stat rv"><b data-count="65" data-prefix="$">$65</b><p>what four accounts cost the usual way, for one tracker, two people who can change it, forty who use it</p></div>')
 rep('<div class="stat dim rv"><b data-count="14" data-suffix="×">14×</b><p>months of Boat House for the price of one month the usual way</p></div>',
     '<div class="stat dim rv"><b data-count="6" data-suffix="×">6×</b><p>cheaper than the usual way, before counting the hour of setup it saves</p></div>')
 rep('<p class="small band-note">Prices are what each company charges month to month, read from their pricing pages in September 2026. Paying yearly makes a few of them cheaper. Managing forty people as one team in the login service adds $100 a month; we left that out. Your own .com on Boat House is about a dollar a month more.</p>',
-    '<p class="small band-note">Prices are what each company charges month to month, read from their pricing pages in September 2026. Team platforms charge per person, $99 to $750 a month for twenty-five people; Boat House charges per tool, and people are free. Your own .com is about a dollar a month more.</p>')
+    '<p class="small band-note">Prices are what each company charges month to month, read from their pricing pages in September 2026. Team platforms charge per person, $99 to $750 a month for twenty-five people; Boat House charges per organization, and people are free. Your own .com is about a dollar a month more.</p>')
 rep('Five minutes of setup turns a $140 bill into a $10 bill.', 'Connect your agent in about 90 seconds, then let it handle the move.')
 rep('<small>one account, one balance, the first $10 on us</small>', '<small>one account, one balance, people free</small>') if 'the first $10 on us' in s else None
 rep('<small>one account, one balance, no card to start</small>', '<small>one account, one balance, people free</small>')

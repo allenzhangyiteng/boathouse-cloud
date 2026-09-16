@@ -13,7 +13,7 @@ MIN_PAYOUT_CENTS = 1000
 ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 TERMS_VERSION = "2026-09-11"
 TERMS = ("Earn 10% of referred customers' paid hosting and storage usage for as long as they use Boat House. "
-         "Their first 60 days of app hosting are half price. Free credit, unused deposits, domain purchases, "
+         "Their first 60 days of organization hosting are half price. Free credit, unused deposits, domain purchases, "
          "taxes, refunds, and disputed payments do not earn commission. Cash payouts are reviewed monthly once your balance reaches $10; smaller balances roll over. "
          "Transfers are made and recorded by Boat House, not automatically sent by this dashboard.")
 

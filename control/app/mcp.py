@@ -452,6 +452,12 @@ async def t_billing(api: Api, a: dict):
              f"{b['running_tools']} running tool(s) burn {_money(b['burn_cents_per_day'])}/day" +
              (f", about {b['days_left']} days left" if b["days_left"] is not None else ""),
              "card on file: " + ("yes" if b["card_on_file"] else "no (use card_link)")]
+    if b.get("plan"):
+        lines.append(f"Organization plan: {_money(b['organization_month_cents'])}/month for up to {b['included_tools']} lightweight tools.")
+        usage = b.get("organization_usage") or {}
+        if usage.get("enforced"):
+            lines.append(f"Shared app memory: {usage['memory_bytes']/1024**2:.1f} of {usage['memory_limit_bytes']/1024**2:g} MB; compute cap: {usage['cpu_limit_cores']:g} CPU core.")
+        if usage.get("message"): lines.append(usage["message"])
     for l in b["ledger"][:10]:
         lines.append(f"{time.strftime('%Y-%m-%d %H:%M', time.localtime(l['ts'])):<18}{l['kind']:<8}"
                      f"{_money(l['amount_cents']):>10}{_money(l['balance_after']):>10}  {l['memo'] or ''}")

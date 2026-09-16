@@ -4,7 +4,7 @@ slug: vibe-coded-app-hosting
 description: A practical checklist for hosting an AI-built app: a stable URL, team sign-in, shared data, backups, and a way to publish updates.
 keyword: ai app hosting, vibe coded app hosting
 date: 2026-09-08
-updated: 2026-09-11
+updated: 2026-09-16
 related: share-internal-tools, where-to-host-claude-code-app
 category: Hosting
 
@@ -42,7 +42,7 @@ These choices are not interchangeable for every workload. Check the supported de
 
 ## What Boat House includes
 
-Managed hosting costs [$10 per running tool per month](/#pricing), billed daily from a prepaid balance. It includes a database, sign-in, nightly backups, and 1 GB of storage, with no per-person seat charge. Extra storage and domain purchases have separate prices shown on the pricing section.
+Managed hosting costs [$10 per organization per month for up to five lightweight tools](/#pricing), billed daily from a prepaid balance. It includes a database, sign-in, nightly backups, and 1 GB of storage, with no per-person seat charge. Extra storage and domain purchases have separate prices shown on the pricing section.
 
 Your agent handles the deployment commands. A viewer or editor does not need to install a development tool to use the app. A trusted developer can receive Admin access to maintain the software.
 

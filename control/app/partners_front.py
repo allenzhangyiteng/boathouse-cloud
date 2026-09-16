@@ -49,7 +49,7 @@ def partners(request: Request):
 <div class=cards><section class=card><h3>1. Get your code</h3><p>Create a free account. Your own link, QR, and referral code are ready in your dashboard.</p></section>
 <section class=card><h3>2. Share it anywhere</h3><p>Use it in a client handoff, tutorial, newsletter, or a conversation. Customers scan your QR or use your code at signup.</p></section>
 <section class=card><h3>3. Keep earning</h3><p>The customer stays linked to you across future apps and workspaces. No renewal or referral expiration.</p></section></div>
-<h2>A reason for them to try it.</h2><p>Your customers get <strong>50% off app hosting for their first 60 days</strong>. Then standard hosting is $10 per app per month, with no per-person charge.</p>
+<h2>A reason for them to try it.</h2><p>Your customers get <strong>50% off organization hosting for their first 60 days</strong>. Then standard hosting is $10 per organization per month for up to five lightweight apps, with no per-person charge.</p>
 <h2>Simple numbers.</h2><p>A customer using $10 of paid hosting earns you $1. Ten customers each using $10 earn you $10. During the half-price offer, $5 of hosting earns you $0.50. Extra paid storage also counts.</p>
 <p>Joining is free. No hosting purchase, payment card, or app required. Boat House is open source under Apache 2.0; commissions apply to our managed hosting service.</p>
 <p><small>Monthly cash payouts start at $10; smaller balances roll over. Free credit, unused deposits, domain purchases, taxes, refunds, and disputed payments are excluded. Transfers use a method agreed with you. <a href="/terms">Read the partner terms</a>.</small></p>''',private=False,nav='<a href="/">Product</a><a href="/demo">Demo</a><a href="/login?next=%2Fpartners">Sign in</a>')
@@ -58,7 +58,7 @@ def partners(request: Request):
         ('Customers referred',r['customer_count']),('Earned to date',_money(r['earned_cents'])),
         ('Paid to you',_money(r['paid_cents'])),('Awaiting payout',_money(r['unpaid_cents']))))
     share = (f"Boat House puts apps online and makes them easy to share with a team. "
-             f"My link gives you 50% off app hosting for 60 days: {r['link']} "
+             f"My link gives you 50% off organization hosting for 60 days: {r['link']} "
              "I earn 10% of your paid hosting and storage usage if you join through it.")
     rows = ''.join(f"<tr><td>{_date(p['created'])}</td><td>{_money(p['cents'])}</td><td>{_e(p['status'].title())}</td><td>{_e(p['payout_ref'] or '—')}</td></tr>" for p in r['payout_history'])
     admin = '<p><a href="/partners/payouts">Manage partner payouts</a></p>' if any(m['slug']==config.HOST_WORKSPACE and m['my_role']=='owner' for m in auth.memberships(email)) else ''
@@ -70,7 +70,7 @@ def partners(request: Request):
 <section class=card><h3>Your QR code</h3><img src="{_e(r['qr_url'])}" alt="Scan to sign up using your referral code" width=230 height=230 style="max-width:100%;height:auto;align-self:flex-start">
 <a class="btn s" download="boathouse-partner-qr.png" href="{_e(r['qr_url'])}?download=1">Download QR code</a></section></div>
 <h2>Ready to share.</h2><p>Use this as a starting point. The last sentence tells people you earn a commission.</p>{_copy(share,'Copy message')}
-<h2>Your earnings.</h2><p>Earn 10% of paid hosting and storage usage, including future apps and workspaces owned by the same referred customer account. Unused deposits and free credit do not earn commission. Customers get half-price app hosting for 60 days; after that, $10 in paid hosting earns you $1.</p>
+<h2>Your earnings.</h2><p>Earn 10% of paid hosting and storage usage, including future apps and workspaces owned by the same referred customer account. Unused deposits and free credit do not earn commission. Customers get half-price organization hosting for 60 days; after that, $10 in paid hosting earns you $1.</p>
 <p>Payouts are reviewed monthly once your balance reaches $10. Smaller balances roll over. Refunds and disputes reduce earnings, including a carry-forward adjustment if a commission was already paid. Customer names, emails, and app data stay private.</p>
 <p>To arrange a payout method, <a href="mailto:support@example.com?subject=Partner%20payout">contact support</a> from this account's email. Do not send bank details by email. We’ll arrange the transfer and record its reference here.</p>
 <h2>Payout history</h2>{f'<table><thead><tr><th>Prepared</th><th>Amount</th><th>Status</th><th>Transfer reference</th></tr></thead><tbody>{rows}</tbody></table>' if rows else '<p>No payouts yet. Your earnings will appear above when a referred customer uses paid hosting.</p>'}

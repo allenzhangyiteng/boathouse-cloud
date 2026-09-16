@@ -4,7 +4,7 @@ slug: where-to-host-claude-code-app
 description: Built an app with Claude Code? Put it online with Boat House, connect your agent once, and share a working link with your team.
 keyword: deploy claude code app, host claude code app
 date: 2026-09-08
-updated: 2026-09-11
+updated: 2026-09-16
 related: share-internal-tools, vibe-coded-app-hosting
 category: Deployment
 
@@ -14,7 +14,7 @@ category: Deployment
 
 ## The short answer
 
-To deploy an app built with Claude Code, give your agent access to a hosting service and ask it to publish your project. Boat House combines app hosting, sign-in, a database, and sharing for small team tools. It is open source under Apache 2.0, with managed hosting available for [$10 per running app per month](/#pricing).
+To deploy an app built with Claude Code, give your agent access to a hosting service and ask it to publish your project. Boat House combines app hosting, sign-in, a database, and sharing for small team tools. It is open source under Apache 2.0, with managed hosting available for [$10 per organization per month for up to five lightweight apps](/#pricing).
 
 Imagine you have built a tutoring tracker. It works on your laptop, but a colleague cannot use your local preview link from their own computer. Deploying gives the tracker a stable online address. Sharing gives your colleague access to the app and the same lesson records.
 

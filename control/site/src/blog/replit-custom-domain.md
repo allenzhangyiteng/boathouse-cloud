@@ -4,6 +4,7 @@ slug: replit-custom-domain
 description: Connect a custom domain to a Replit app. Understand DNS setup, HTTPS, and the separate decisions about app logins and team access.
 keyword: replit deploy custom domain, replit deploy to custom domain, replit deploy on custom domain
 date: 2026-09-08
+updated: 2026-09-16
 category: Hosting
 
 > The Domains tab only appears after a successful deployment. You publish first, then point the domain at the published app.
@@ -61,7 +62,7 @@ Nor does the domain keep the app awake. Pointed at an Autoscale deployment, it s
 | www and apex | Two separate entries | Both served |
 | Who can open it | Public unless you build a login | Named logins, viewer, editor or admin |
 | Plan before hosting | $20 a month Core | none |
-| Hosting one always-on tool | Deployment billed on top of the plan | $10 a month a tool |
+| Hosting one always-on tool | Deployment billed on top of the plan | $10 a month per organization for up to five lightweight tools |
 
 ## The Boat House way
 
@@ -73,7 +74,7 @@ Boat House hosts small software built by an agent, so the domain and the login a
 - `bh rollback tracker 1` puts yesterday's version back, and `bh logs tracker` shows what happened.
 - `bh export tracker` gives you the code and the data in one file if you ever want to leave.
 
-The price is [$10 a month a tool](/#pricing), no card to sign up, no per-person charge. A referral code makes every tool half price for the first 60 days. If the app was built in Replit, export the code and run `bh deploy` in the folder; the same trick works for a [Lovable app on a custom domain](/blog/lovable-custom-domain-and-login).
+The price is [$10 a month per organization for up to five lightweight tools](/#pricing), no card to sign up, no per-person charge. A referral code makes organization hosting half price for the first 60 days. If the app was built in Replit, export the code and run `bh deploy` in the folder; the same trick works for a [Lovable app on a custom domain](/blog/lovable-custom-domain-and-login).
 
 ## Questions
 

@@ -4,6 +4,7 @@ slug: share-internal-tools
 description: Share an internal app and its data with named logins. Give teammates Viewer, Editor, or Admin access through your connected coding agent.
 keyword: share internal tools, share app with team
 date: 2026-09-11
+updated: 2026-09-16
 related: where-to-host-claude-code-app, vibe-coded-app-hosting
 category: Sharing
 
@@ -55,7 +56,7 @@ Ask the developer to test the change and preserve existing data before publishin
 
 Ask your agent to remove a person who no longer needs the tool or change their role when their responsibilities change. Check that access has actually changed by testing the relevant account.
 
-Boat House's hosted price is per running tool, with [no per-person seat charge](/#pricing). The software is open source if you prefer to run it yourself. Review the [security page](/security) for the platform's controls, shared responsibilities, and limitations.
+Boat House's hosted price is $10 per organization per month for up to five lightweight tools, with [no per-person seat charge](/#pricing). The software is open source if you prefer to run it yourself. Review the [security page](/security) for the platform's controls, shared responsibilities, and limitations.
 
 ## Questions
 
