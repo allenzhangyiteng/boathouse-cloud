@@ -1027,3 +1027,32 @@ def account_capacity(slug: str,tool: str,request: Request,csrf: str=Form(''),sto
 <form method=post><input type=hidden name=csrf value="{pages._e(csrf)}"><input type=hidden name=quote_id value="{pages._e(q['quote_id'])}"><input type=hidden name=maximum value="{q['max_extra_monthly_cents']}"><button>Approve up to ${q['max_extra_monthly_cents']/100:.2f} extra per month</button></form><p><a href="/account?ws={pages._e(slug)}">Cancel</a></p>'''
         return HTMLResponse(pages.page('Review app capacity',body))
     except resources.ResourceError as e: return _render(email,mem,ws,error=str(e),code=409)
+
+
+@router.get("/account/{slug}/domains")
+def renewal_page(slug: str, request: Request, saved: str = ""):
+    from . import domain_renewals
+    email, ws, bad = _owner(request, slug)
+    if bad:
+        return bad
+    return HTMLResponse(pages.domain_renewals_page(slug, domain_renewals.settings(ws['id']), auth.csrf_token(CSRF), bool(saved)))
+
+
+@router.post("/account/{slug}/domains/{domain}/renewal")
+def renewal_form(slug: str, domain: str, request: Request, csrf: str = Form(""), enabled: str = Form("off"), maximum: str = Form("")):
+    from decimal import Decimal, InvalidOperation
+    from . import domain_renewals
+    email, mem, ws, bad = _guard(request,slug,csrf)
+    if bad:
+        return bad
+    try:
+        if enabled not in ('on','off'):
+            raise HTTPException(422,'Choose on or off.')
+        amount = Decimal(maximum or '0') * 100
+        if not amount.is_finite() or amount != amount.to_integral_value():
+            raise InvalidOperation
+        domain_renewals.set_policy(ws['id'], _main()._valid_domain(domain), enabled=='on', int(amount), email)
+    except (InvalidOperation, ValueError, HTTPException) as exc:
+        detail = exc.detail if isinstance(exc,HTTPException) else 'Enter a price in dollars and cents.'
+        return HTMLResponse(pages.page('Renewal settings', f'<h1>Settings were not changed</h1><p>{pages._e(str(detail))}</p><p><a href="/account/{pages._e(slug)}/domains">Back to domains</a></p>'),status_code=exc.status_code if isinstance(exc,HTTPException) else 422)
+    return RedirectResponse(f'/account/{slug}/domains?saved=1',303)

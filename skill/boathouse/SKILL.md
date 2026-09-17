@@ -249,3 +249,10 @@ On the managed service, an organization includes up to five lightweight tools fo
 Use `bh usage` before diagnosing a slow or paused app. Storage warnings appear in the account and are emailed to owners at 80% and 90%. An app near its storage limit pauses; its data remains. Native filesystem quotas enforce the hard limit even if the monitor is unavailable. PostgreSQL roles have 8 connections, bounded temporary query files and query timeouts. If capacity is unavailable on the host, a deployment is refused before replacing the current app.
 
 Never silently upgrade an app. Ask for a capacity quote, explain its maximum extra monthly cost, and confirm only the exact approved quote and price. Self-service storage is capped at 10 GB and depends on available host capacity. Larger workloads need operator review. CPU and memory increases also need operator review. Never tell someone a deployment is queued unless the service actually accepted it.
+
+
+## Domain renewals
+
+Buying a domain also enables renewal from prepaid Boat House credit up to the quoted renewal limit. Show this ongoing renewal policy with the purchase quote. Boat House emails the price around 30 days before expiry, attempts renewal 14 days before expiry, and waits at least seven days after sending the price notice. A higher price requires owner approval; low credit or provider trouble stops the renewal and triggers a notice. Never fund the registrar account or charge a customer card on your own.
+
+Owners can manage this without a terminal at their account's **Manage domain renewals** link, including detached domains. For agents, `bh domain renewals` (MCP `domain_renewals`) reads expiry, status, limits and errors. `bh domain renewal <domain> --enabled on --max-cost-cents <approved-total>` previews a change; add `--yes` only after approval. Use `--enabled off` to cancel future renewal, which lets the domain expire. MCP `domain_renewal_set` takes domain, enabled, max_cost_cents and confirm; preview before confirming. Detaching a domain does not turn renewal off. An in-flight renewal must finish reconciliation before its settings can change.

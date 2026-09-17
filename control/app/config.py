@@ -73,3 +73,5 @@ REGISTRAR = os.environ.get("BH_REGISTRAR", "porkbun")
 # The host's own workspace: its owners run the registrar, the card processor, and may grant credit.
 HOST_WORKSPACE = os.environ.get("BH_HOST_WORKSPACE", WORKSPACE_SLUG).lower()
 METER = os.environ.get("BH_METER", "1") != "0"          # the hourly metering loop; off in tests
+
+DOMAIN_RENEWALS = os.environ.get("BH_DOMAIN_RENEWALS", "1" if METER else "0") == "1"

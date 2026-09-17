@@ -202,7 +202,7 @@ EXPECTED = {"usage", "capacity",
     "whoami", "list_tools", "get_tool", "deploy", "pull", "logs", "releases", "rollback", "restart",
     "share", "unshare", "set_access", "secrets_list", "secrets_set", "secrets_delete",
     "users_list", "users_add", "users_invite", "users_remove",
-    "domains_list", "domain_check", "domain_buy", "billing", "prices", "topup", "card_link", "delete_tool",
+    "domains_list", "domain_check", "domain_buy", "domain_renewals", "domain_renewal_set", "billing", "prices", "topup", "card_link", "delete_tool",
     "referral", "request_access", "access_requests", "allow_request",
     "domain_attach", "domain_point", "domain_primary", "domain_dns", "domain_repoint", "domain_detach",
 }

@@ -1,0 +1,17 @@
+# Domain renewal billing
+
+Boat House holds customer domains in its registrar account. Customers fund their Boat House balance through Stripe; that money does not automatically top up the registrar. Keep the host's registrar credit funded. The renewal monitor sends the host a weekly low-credit notice below $20 and alerts on individual renewal problems. It never adds registrar credit or charges a card itself.
+
+Buying a domain includes automatic renewal from prepaid credit, with the renewal price shown in the purchase quote as the initial spending limit. Existing allocated domains retain their previous on/off preference when adopted. The registrar's separate automatic renewal is disabled only on allocated customer domains, preventing renewal outside the customer ledger. The platform domain and unrelated domains remain unchanged.
+
+The hourly worker checks expiry dates, sends a price notice starting 30 days before expiry, and attempts renewal 14 days before expiry. It requires at least seven days since successful sending to every current organization owner. It checks both balances, the current registrar renewal price, and the approved limit. Price increases need approval. The fee is $2 per year in the registrar's renewal term. Registration promotions never determine renewal prices.
+
+Owners use **Account → Manage domain renewals** to see expiry, status and errors, set a maximum, or turn renewal off. Detached domains remain visible because detaching does not cancel ownership or renewal. CLI: `bh domain renewals`; MCP: `domain_renewals`. Changing settings is owner-only, with CSRF/origin protection for the browser and explicit confirmation in agent tools. Turning renewal off lets the registration expire; it does not immediately stop the website.
+
+Before a provider write, the worker atomically reserves credit and persists an operation ID. Successful proof settles the existing debit and queues a receipt. An explicit initial rejection returns the reservation. An interrupted response retains it: retries use the same provider idempotency key for at most 23 hours. A completed cycle cannot renew or debit again.
+
+If an operation remains uncertain after that replay window, support must reconcile it with Porkbun's order record. Do not issue a fresh renewal, erase the operation, or release its reserved credit merely because the request timed out. A changed expiry alone is not proof that this operation paid for renewal: manual renewals could also change it. Verified matching domain, order, cost and extended expiry are required. A saved successful provider response can settle without another registrar call. Registrar key changes also stop renewal until support verifies the connection.
+
+Monitor `domain.renewal_check_failed` and `domain.renewal_worker_failed` audit events, the owner-page errors, and undelivered records in the durable `domain_renewal_notices` outbox. Failed email is retried and never counts as successful advance notice. The worker runs independently of hosting metering and Stripe reconciliation. Disabling `BH_DOMAIN_RENEWALS` requires an operator renewal plan: do not roll back to a release without the worker after adopting registrar domains.
+
+Tests prohibit real provider calls and cover duplicate/concurrent attempts, isolation, missing funds, price changes, failed email, cancellation, invalid proofs, crashes and replay expiry. Provider integration is exercised with separate Porkbun sandbox keys and fake credit; live test renewals are unnecessary.

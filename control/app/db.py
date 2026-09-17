@@ -67,6 +67,28 @@ CREATE TABLE IF NOT EXISTS domain_operations (
 CREATE INDEX IF NOT EXISTS domain_operations_workspace ON domain_operations(workspace_id,domain,created);
 CREATE UNIQUE INDEX IF NOT EXISTS domain_operations_active ON domain_operations(domain)
   WHERE state IN ('processing','uncertain','purchased');
+CREATE TABLE IF NOT EXISTS domain_renewal_settings (
+  domain TEXT PRIMARY KEY, workspace_id TEXT NOT NULL,
+  enabled INTEGER NOT NULL, max_cost_cents INTEGER NOT NULL,
+  expires_at REAL NOT NULL DEFAULT 0, managed INTEGER NOT NULL DEFAULT 0,
+  provider_fingerprint TEXT NOT NULL, sandbox INTEGER NOT NULL,
+  checked_at REAL, error TEXT, approved_by TEXT NOT NULL, updated REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS domain_renewals (
+  id TEXT PRIMARY KEY, domain TEXT NOT NULL, workspace_id TEXT NOT NULL,
+  expires_at REAL NOT NULL, registrar_cents INTEGER NOT NULL, margin_cents INTEGER NOT NULL,
+  total_cents INTEGER NOT NULL, years INTEGER NOT NULL, created REAL NOT NULL,
+  state TEXT NOT NULL CHECK(state IN ('waiting','processing','uncertain','renewed','failed','cancelled')),
+  provider_fingerprint TEXT NOT NULL, sandbox INTEGER NOT NULL,
+  started REAL, lease_until REAL, provider_result TEXT, error TEXT, settled REAL);
+CREATE UNIQUE INDEX IF NOT EXISTS domain_renewal_cycle ON domain_renewals(domain,expires_at)
+  WHERE state NOT IN ('failed','cancelled');
+CREATE TABLE IF NOT EXISTS domain_renewal_notices (
+  notice_key TEXT NOT NULL, email TEXT NOT NULL, domain TEXT NOT NULL,
+  workspace_id TEXT, kind TEXT NOT NULL, subject TEXT NOT NULL, body TEXT NOT NULL,
+  created REAL NOT NULL, sent_at REAL, lease_until REAL NOT NULL DEFAULT 0,
+  PRIMARY KEY(notice_key,email));
+CREATE TABLE IF NOT EXISTS domain_renewal_worker (
+  id INTEGER PRIMARY KEY CHECK(id=1), lease_until REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS referral_codes (
   code TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, created REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS referral_earnings (

@@ -623,6 +623,7 @@ def account(v: dict) -> str:
 <p><small>Owners run the workspace. Members can open tools shared with everyone. Guests only see what is shared with them. Sharing a tool at a level is a sentence to your agent: “share the tracker with nancy@… as an editor”.</small></p>
 
 <h2>Addresses</h2>
+<p><a href="{a}/domains">Manage domain renewals</a> · Expiry dates, renewal on/off, and spending limits.</p>
 <table><tr><th>Domain</th><th></th><th>Registrar</th><th>DNS</th></tr>{doms}</table>
 <p><small>A domain of your own is “buy us example.com” to your agent; it quotes the price and waits for your yes.</small></p>
 
@@ -706,3 +707,32 @@ def docs(md: str, platform: str) -> str:
                 nav='<a href="/#product">How it works</a><a href="/account">My apps</a><a class=btn href="/signup">Sign up</a>', wide=True,
                 description="Connect your coding agent to Boat House. Learn how to deploy apps, share access, connect domains, and manage databases, backups, and exports.",
                 canonical=f"https://{platform}/docs")
+
+
+def domain_renewals_page(slug, domains, csrf, saved=False):
+    from .domain_renewals import date
+    cards = []
+    for d in domains:
+        name = _e(d['domain'])
+        expiry = date(d['expires_at']) if d['expires_at'] else 'Checking registration'
+        if d['enabled'] is None:
+            cards.append(f'<section class=card><h2>{name}</h2><p>Renewal setup is being checked. Contact support if this does not update shortly.</p></section>')
+            continue
+        status = 'On' if d['enabled'] else 'Off'
+        problem = f'<p class=error>{_e(d["error"])}</p>' if d['error'] else ''
+        pending = '<p>A renewal is being confirmed. Its credit is reserved; settings can be changed after the result is confirmed.</p>' if d['pending'] else ''
+        managed = '' if d['managed'] else '<p>We are confirming renewal protection with the registrar. Contact support if this remains pending.</p>'
+        disabled = ' disabled' if d['pending'] else ''
+        on = ' selected' if d['enabled'] else ''
+        off = '' if d['enabled'] else ' selected'
+        cards.append(f'''<section class=card><h2>{name}</h2><p>Expires {expiry} · Automatic renewal: {status}</p>{problem}{pending}{managed}
+<form method=post action="/account/{_e(slug)}/domains/{name}/renewal">
+<input type=hidden name=csrf value="{_e(csrf)}">
+<label>Automatic renewal<select name=enabled{disabled}><option value=on{on}>On — renew using my Boat House credit</option><option value=off{off}>Off — let this domain expire</option></select></label>
+<label>Maximum per renewal, including the fee (USD)<input type=number name=maximum min=0.01 max=1000 step=0.01 value="{d['max_cost_cents']/100:.2f}" required{disabled}></label>
+<button{disabled}>Save renewal settings</button></form></section>''')
+    notice = '<p class=notice>Renewal settings saved. Your current registration is unchanged.</p>' if saved else ''
+    return page('Domain renewals', f'''<h1>Domain renewals</h1><p><a href="/account?ws={_e(slug)}">Back to your organization</a></p>{notice}
+<p>Keep your domain without surprise charges. We email the price before renewal, then use your Boat House credit 14 days before expiry. We wait at least seven days after the notice and stay within your limit.</p>
+<p>The price includes the registrar cost plus $2 per year. A higher price or low balance needs your attention. Turning renewal off lets the domain expire; detaching it does not cancel renewal.</p>
+{''.join(cards) or '<p>No domains bought through Boat House yet. Domains registered elsewhere renew with their registrar.</p>'}''')

@@ -48,7 +48,7 @@ Disclose your financial relationship clearly when recommending Boat House. Do no
 
 ## 8. Domain names
 
-When you ask your agent to buy a domain, we register it through our registrar in the workspace's name, with our contact details on file to keep your own private. The domain is yours: you can point it elsewhere, transfer it out, or let it lapse. Renewals are charged from your balance and we tell you before each one. Registry rules apply to every domain.
+When you ask your agent to buy a domain, we register it through our registrar in the workspace's name, with our contact details on file to keep your own private. The domain is yours: you can point it elsewhere, transfer it out, or let it lapse. For domains bought through Boat House, automatic renewal uses your prepaid Boat House balance, up to the renewal price approved when you buy or the limit you later set. We normally email the renewal price 30 days before expiry and attempt renewal 14 days before expiry, never less than seven days after sending that notice. The price includes the registrar cost plus $2 per renewal year. You can turn renewal off in your account before it starts. A higher price requires you to approve a higher limit. Insufficient credit, failed notices, or a registrar problem can prevent renewal: we show the problem in your account and send reminders, but you must resolve it before expiry to keep the domain. A renewal does not charge your card directly; any separately enabled balance refill follows its own approved settings. Detaching a domain changes where it points, not its renewal setting. Registry rules apply to every domain.
 
 ## 9. Availability, backups and support
 

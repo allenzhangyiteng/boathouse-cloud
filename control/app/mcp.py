@@ -442,7 +442,7 @@ async def t_domain_buy(api: Api, a: dict):
               f"{_money(q['balance_cents'])}{sb}")
     if not q.get("would_succeed", True):
         raise ApiError(quoted + "\n" + (q.get("message") or "the registrar says this would fail"), q)
-    return quoted + "\nDry run only: nothing was bought. Confirm this quote_id with confirm true and max_cost_cents within the user's approved budget. Reuse the same quote on retries.", q
+    return quoted + "\n" + q.get("renewal_policy", "") + "\nDry run only: nothing was bought. Confirm this quote_id with confirm true and max_cost_cents within the user's approved budget. Reuse the same quote on retries.", q
 
 
 async def t_billing(api: Api, a: dict):
@@ -514,6 +514,19 @@ async def t_allow_request(api: Api, a: dict):
     r = (await api.post(f"/api/access-requests/{quote(str(rid))}/allow", json={})).json()
     return (f"{r['email']} is now {r['tier']} on {r['tool']}" +
             (", and got an email saying what to do next." if r.get("emailed") else ".")), r
+
+
+async def t_domain_renewals(api: Api, a: dict):
+    result = (await api.get("/api/domains/renewals")).json()
+    return "Domain renewal settings, including detached registrations. Changes require owner approval.", result
+
+
+async def t_domain_renewal_set(api: Api, a: dict):
+    if a.get("confirm") is not True:
+        return "Preview only. Enabling renewal authorizes future prepaid charges up to max_cost_cents per renewal, including the service fee. Turning it off lets the domain expire. Get approval, then repeat with confirm true.", a
+    d = a.get("domain", "").strip().lower()
+    result = (await api.patch(f"/api/domains/{quote(d)}/renewal", json={"enabled": a.get("enabled"), "max_cost_cents": a.get("max_cost_cents")})).json()
+    return "Renewal settings saved. The current registration is unchanged.", result
 
 
 async def t_domain_attach(api: Api, a: dict):
@@ -789,6 +802,10 @@ TOOLS: list[tuple[str, str, dict, Handler]] = [
               "confirm": CONFIRM_ARG,
               "quote_id": {"type": "string", "description": "The quote_id from the dry run. Required to confirm; reuse it on retries."},
               "max_cost_cents": {"type": "integer", "minimum": 1, "description": "Maximum approved total, including Boathouse's margin. Required to confirm."}}, ["domain"]), t_domain_buy),
+
+    ("domain_renewals", "Read domain expiry dates, renewal status, spending limits and billing problems. Owners only.", _schema({}), t_domain_renewals),
+    ("domain_renewal_set", "Set automatic renewal and a maximum prepaid renewal charge. Quote the change first, then require explicit approval with confirm true. Turning renewal off lets the domain expire. Owners only.",
+     _schema({"domain":{"type":"string","description":"A domain owned through this organization, including detached domains."},"enabled":{"type":"boolean","description":"True renews from prepaid credit; false lets the domain expire."},"max_cost_cents":{"type":"integer","minimum":1,"maximum":100000,"description":"Approved maximum per renewal including the service fee; required when enabling."},"confirm":CONFIRM_ARG},["domain","enabled"]),t_domain_renewal_set),
 
     ("domain_attach",
      "Bring a domain the workspace already owns elsewhere: Boathouse starts answering on it and returns the DNS "

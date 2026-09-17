@@ -21,7 +21,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from starlette.background import BackgroundTask
 
-from . import checkout, resources, auth, billing, config, db, deploy, domain_payments, export, hosts, mail, pages, referrals, registrar, restore
+from . import checkout, resources, auth, billing, config, db, deploy, domain_payments, domain_renewals, export, hosts, mail, pages, referrals, registrar, restore
 from .hosts import RESERVED
 
 app = FastAPI(title="Boathouse", docs_url=None, redoc_url=None)
@@ -95,8 +95,21 @@ def _startup():
             print(f"startup: could not attach networks for {tool['slug']}: {e}")
     if config.RESOURCE_GUARD:
         asyncio.get_event_loop().create_task(_resource_loop())
+    if config.DOMAIN_RENEWALS:
+        asyncio.get_event_loop().create_task(_domain_renewal_loop())
     if config.METER:
         asyncio.get_event_loop().create_task(_meter_loop())
+
+
+async def _domain_renewal_loop():
+    # A separate loop: a hosting/Stripe error must not skip domain expiry checks.
+    await asyncio.sleep(60)
+    while True:
+        try:
+            await run_in_threadpool(domain_renewals.run_once)
+        except Exception as exc:
+            db.audit("domain-renewal", "domain.renewal_worker_failed", None, {"error_type": type(exc).__name__})
+        await asyncio.sleep(3600)
 
 
 async def _resource_loop():
@@ -1564,6 +1577,21 @@ def list_domains(request: Request, authorization: str | None = Header(None)):
     ws = _ws(u)
     return {"free": f"{ws['slug']}.{config.PLATFORM_DOMAIN}", "primary": hosts.base_for(ws),
             "domains": [_domain_row(d) for d in hosts.workspace_domains(ws["id"])]}
+
+
+@app.get("/api/domains/renewals")
+def domain_renewal_settings(request: Request, authorization: str | None = Header(None)):
+    u = _actor(request, authorization)
+    _require_owner(u)
+    return {"domains": domain_renewals.settings(u["workspace_id"])}
+
+
+@app.patch("/api/domains/{domain}/renewal")
+def domain_renewal_policy(domain: str, request: Request, body: dict, authorization: str | None = Header(None)):
+    u = _actor(request, authorization)
+    _require_owner(u)
+    return domain_renewals.set_policy(u["workspace_id"], _valid_domain(domain), body.get("enabled"),
+                                     body.get("max_cost_cents"), u["email"])
 
 
 @app.post("/api/domains/check")

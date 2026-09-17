@@ -67,6 +67,7 @@ def quote_view(row):
             "domain": row["domain"], "cost_cents": row["total_cents"], "cost": f"${row['total_cents']/100:.2f}",
             "registrar_cents": row["registrar_cents"], "margin_cents": row["margin_cents"],
             "renewal_cents": row["renewal_cents"], "balance_cents": bal,
+            "renewal_policy": "Buying enables automatic renewal from your Boat House credit, up to the quoted renewal price per renewal. We email you first and wait at least seven days. Turn it off in your account at any time before renewal starts; higher prices require your approval.",
             "sufficient_funds": reserved or bal >= row["total_cents"],
             "would_succeed": reserved or bal >= row["total_cents"],
             "message": None if reserved or bal >= row["total_cents"] else "Add credit before buying this domain.",
@@ -223,6 +224,10 @@ def _settle(row, result):
             int(first), row["registrar_cents"], str(result.get("orderId") or ""), time.time(), row["created_by"]))
         c.execute("INSERT INTO domain_allocations (domain,workspace_id,created) VALUES (?,?,?)",
                   (row["domain"], row["workspace_id"], time.time()))
+        c.execute("""INSERT OR IGNORE INTO domain_renewal_settings
+            (domain,workspace_id,enabled,max_cost_cents,provider_fingerprint,sandbox,approved_by,updated)
+            VALUES (?,?,1,?,?,?,?,?)""", (row["domain"],row["workspace_id"],row["renewal_cents"],
+            row["provider_fingerprint"],row["sandbox"],row["created_by"],time.time()))
         c.execute("UPDATE ledger SET kind='charge',memo=? WHERE ref=?", (
             f"domain {row['domain']} (registrar ${row['registrar_cents']/100:.2f} + ${row['margin_cents']/100:.2f})", f"domain:{row['id']}"))
         c.execute("UPDATE domain_operations SET state='purchased',lease_until=0,settled=?,error=NULL WHERE id=?", (time.time(), row["id"]))

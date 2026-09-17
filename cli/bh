@@ -901,6 +901,16 @@ def cmd_domain(a):
         for d in r["domains"]:
             flags = ("primary " if d["primary"] else "") + ("dns-ok" if d["dns_ok"] else "dns-pending")
             print(f"{d['domain']:<32}{d['registrar']:<10}{d['status']:<8}{flags}")
+    elif a.action == "renewals":
+        print(json.dumps(call("GET", "/api/domains/renewals"), indent=2))
+    elif a.action == "renewal":
+        if not a.name or a.enabled not in ("on", "off"):
+            die("usage: bh domain renewal <domain> --enabled on|off [--max-cost-cents N] [--yes]")
+        print("Automatic renewal " + a.enabled + "; maximum per renewal including fees: " + (_money(a.max_cost_cents) if a.max_cost_cents else "unchanged/off") + ". Turning renewal off lets the domain expire.")
+        if not a.yes:
+            print("Preview only. Get approval before repeating with --yes.")
+            return
+        print(json.dumps(call("PATCH", f"/api/domains/{a.name}/renewal", body={"enabled":a.enabled=="on","max_cost_cents":a.max_cost_cents}),indent=2))
     elif a.action == "check":
         q = call("POST", "/api/domains/check", body={"domain": a.name})
         if not q["available"]:
@@ -913,6 +923,7 @@ def cmd_domain(a):
     elif a.action == "buy":
         q = call("POST", "/api/domains", body={"domain": a.name, "confirm": False})
         sb = " [SANDBOX: fake money]" if q.get("sandbox") else ""
+        print(q.get("renewal_policy", ""))
         print(f"{q['domain']}: {q['cost']} now (registrar {_money(q['registrar_cents'])} + Boathouse {_money(q['margin_cents'])}), renews at {_money(q['renewal_cents'])}/year; workspace balance {_money(q['balance_cents'])}{sb}")
         if not q.get("would_succeed", True):
             die(q.get("message") or "the registrar says this would fail")
@@ -1173,7 +1184,7 @@ def main():
     s = sp.add_parser("access"); s.add_argument("tool"); s.add_argument("mode", nargs="?", choices=["members", "listed", "public"], help="leave out to see who can open it"); s.add_argument("--tier", choices=["viewer", "editor", "admin"]); s.set_defaults(f=cmd_access)
     s = sp.add_parser("secrets"); s.add_argument("action", choices=["ls", "set", "rm"]); s.add_argument("tool"); s.add_argument("name", nargs="?"); s.add_argument("value", nargs="?"); s.set_defaults(f=cmd_secrets)
     s = sp.add_parser("users"); s.add_argument("action", nargs="?", choices=["ls", "add", "rm", "invite"], default="ls"); s.add_argument("email", nargs="?"); s.add_argument("--role", default="member"); s.set_defaults(f=cmd_users)
-    s = sp.add_parser("domain"); s.add_argument("action", choices=["ls", "check", "buy", "attach", "dns", "repoint", "primary", "point", "detach", "free", "platform"]); s.add_argument("name", nargs="?"); s.add_argument("--yes", action="store_true"); s.add_argument("--quote-id", help="reuse a prior quote when confirming or retrying"); s.add_argument("--max-cost-cents", type=int, help="maximum approved domain price, including Boathouse's margin"); s.add_argument("--to", help="tool that should answer at the domain itself (apex and www)"); s.set_defaults(f=cmd_domain)
+    s = sp.add_parser("domain"); s.add_argument("action", choices=["ls", "renewals", "renewal", "check", "buy", "attach", "dns", "repoint", "primary", "point", "detach", "free", "platform"]); s.add_argument("name", nargs="?"); s.add_argument("--yes", action="store_true"); s.add_argument("--enabled", choices=["on","off"]); s.add_argument("--quote-id", help="reuse a prior quote when confirming or retrying"); s.add_argument("--max-cost-cents", type=int, help="maximum approved domain price, including Boathouse's margin"); s.add_argument("--to", help="tool that should answer at the domain itself (apex and www)"); s.set_defaults(f=cmd_domain)
     s = sp.add_parser("prices"); s.set_defaults(f=cmd_prices)
     s = sp.add_parser("referral"); s.add_argument("action", nargs="?", choices=["show", "payouts", "prepare", "paid"], default="show"); s.add_argument("email", nargs="?"); s.add_argument("--ref"); s.add_argument("--payout-id"); s.add_argument("--cents", type=int); s.set_defaults(f=cmd_referral)
     s = sp.add_parser("billing"); s.add_argument("action", nargs="?", choices=["status", "card", "topup", "autorefill", "grant", "stripe-keys", "meter"], default="status"); s.add_argument("arg1", nargs="?"); s.add_argument("arg2", nargs="?"); s.add_argument("--yes", action="store_true"); s.add_argument("--cap"); s.add_argument("--memo"); s.set_defaults(f=cmd_billing)

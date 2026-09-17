@@ -64,7 +64,7 @@ def set_keys(apikey: str, secret: str, by: str | None):
 
 # ---- HTTP ---------------------------------------------------------------------
 
-def _call(path: str, body: dict | None = None, authed: bool = True, idempotency_key: str | None = None, timeout: float = 30) -> dict:
+def _call(path: str, body: dict | None = None, authed: bool = True, idempotency_key: str | None = None, timeout: float = 30, method: str = "POST") -> dict:
     payload = dict(body or {})
     headers = {"Content-Type": "application/json", "User-Agent": "boathouse/0.2"}
     if authed:
@@ -78,7 +78,7 @@ def _call(path: str, body: dict | None = None, authed: bool = True, idempotency_
     for attempt in range(3):
         try:
             with httpx.Client(timeout=timeout) as h:
-                r = h.post(BASE + path, json=payload, headers=headers)
+                r = h.post(BASE + path, json=payload, headers=headers) if method == "POST" else h.get(BASE + path, headers=headers)
         except httpx.HTTPError as exc:
             raise RegistrarError("The registrar response was interrupted.", "PROVIDER_UNAVAILABLE", 503,
                                  uncertain=bool(idempotency_key)) from exc
@@ -249,3 +249,46 @@ def point(domain: str, ip: str, names: tuple[str, ...] = ("", "*", "www")) -> li
         rid = keep or create_record(domain, n, "A", ip)
         done.append({"name": full, "type": "A", "content": ip, "id": rid})
     return done
+
+
+def domain_info(domain: str) -> dict:
+    result = _call(f"/domain/get/{domain}", method="GET")
+    info = result.get("domain")
+    if not isinstance(info, dict) or info.get("domain", "").lower() != domain:
+        raise RegistrarError("The registrar did not return this domain's metadata.", "BAD_DOMAIN_PROOF")
+    return info
+
+
+def renewal_quote(domain: str) -> dict:
+    result = _call(f"/domain/checkDomain/{domain}").get("response", {})
+    # The primary price is ALWAYS registration, including first-year promos.
+    # Despite the renew endpoint's prose suggesting priceType=renewal, the
+    # documented response places renewal pricing in additional.renewal.
+    renewal = (result.get("additional") or {}).get("renewal") or {}
+    years = int(renewal.get("minDuration") or result.get("minDuration") or 1)
+    cost = _cents(renewal.get("price", 0)) * years
+    if result.get("premium") == "yes" or cost <= 0 or not 1 <= years <= 10:
+        raise RegistrarError("The registrar cannot quote this renewal. Contact support.", "RENEWAL_UNSUPPORTED")
+    return {"cost_cents": cost, "years": years}
+
+
+def disable_auto_renew(domain: str):
+    # This is a set-to-off operation, safe to repeat; never touch other domains.
+    result = _call(f"/domain/updateAutoRenew/{domain}", {"status": "off"})
+    per_domain = result.get("results", {}).get(domain, {})
+    if per_domain.get("status") != "SUCCESS":
+        raise RegistrarError("Could not turn off the registrar's separate automatic renewal.", "AUTORENEW_UNCONFIRMED")
+    info = domain_info(domain)
+    if str(info.get("autoRenew")) != "0":
+        raise RegistrarError("The registrar still reports automatic renewal enabled.", "AUTORENEW_UNCONFIRMED")
+    return info
+
+
+def renew(domain: str, cost_cents: int, dry_run: bool, idempotency_key: str | None = None) -> dict:
+    if not dry_run and not idempotency_key:
+        raise ValueError("A persisted renewal idempotency key is required.")
+    body = {"cost": cost_cents}
+    if dry_run:
+        body["dryRun"] = True
+    return _call(f"/domain/renew/{domain}", body,
+                 idempotency_key=idempotency_key if not dry_run else None, timeout=90)
