@@ -27,6 +27,13 @@ def render(slug, platform):
     title, description = GUIDES[slug]
     content = '<p><a href="/docs">All docs</a> · <a href="/docs/' + slug + '.md">Read as Markdown</a></p>' + pages._md(read(slug))
     content += '<p><a href="/signup">Get started</a> · <a href="/security">Security and current limitations</a> · <a href="https://github.com/allenzhangyiteng/boathouse-skills">Open-source skill</a></p>'
-    return pages.page(title + " | Boat House", content,
+    document = pages.page(title + " | Boat House", content,
                       nav='<a href="/">Boat House</a><a href="/docs">Docs</a><a class=btn href="/account">My apps</a>', wide=True,
                       description=description, canonical=f"https://{platform}/docs/{slug}")
+    guide_style = """<style>
+main.wide{max-width:850px;overflow-wrap:anywhere}
+main.wide pre{max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.7 var(--mono);background:var(--band);border:1px solid var(--hair);border-radius:6px;padding:16px;margin:20px 0}
+main.wide pre code{font:inherit;background:none;border:0;padding:0}
+@media(max-width:640px){.top nav>a:first-child{display:none}}
+</style>"""
+    return document.replace("</head>", guide_style + "</head>", 1)
