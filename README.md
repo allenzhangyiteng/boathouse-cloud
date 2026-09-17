@@ -28,6 +28,24 @@ Admin is full control of a tool, including its source, secrets, sharing and dele
 
 Create an account at [boathousecloud.com](https://boathousecloud.com), confirm your email, then choose **Copy connection** and paste the message into your coding agent. Ask it to put a tool online or share it by email. Add credit before deploying. No separate hosting, database or sign-in project is needed.
 
+Install the agent skill in Cursor, Codex or Windsurf:
+
+```sh
+npx skills add allenzhangyiteng/boathouse-skills
+```
+
+For Claude Code, add `/plugin marketplace add allenzhangyiteng/boathouse-skills`, then `/plugin install boathouse@boathouse`. See the [skill and plugin repository](https://github.com/allenzhangyiteng/boathouse-skills) and [installation guide](https://boathousecloud.com/docs/install-agent).
+
+The CLI can create a working app before you connect an account:
+
+```sh
+bh init my-app --template team
+cd my-app
+python3 app.py --local
+```
+
+Use `--template static` for an HTML website. `boathouse` is an alias installed alongside `bh` when available. The starter format is ordinary source plus `boathouse.json`; no proprietary runtime is needed. See the [runnable guides](https://boathousecloud.com/docs/create-app), [llms.txt](https://boathousecloud.com/llms.txt) and [complete agent docs](https://boathousecloud.com/llms-full.txt).
+
 ## Run your own installation
 
 See [the self-hosting guide](docs/self-hosting.md) for a Linux host with Docker, DNS and HTTPS. The public release contains no accounts, credentials, database snapshots, hosted customer tools or production configuration. All examples use placeholders; generate your own secrets.

@@ -1,6 +1,6 @@
 ---
 name: boathouse
-description: Deploy, share, update, roll back, and inspect small internal tools on Boathouse, the small cloud for small software, using the bh command; buy and attach domains for a workspace from the terminal; invite people with one-time links. Use whenever a tool Claude Code just built should become a live login-protected URL, when someone asks to deploy/ship/publish/host an internal tool, share a tool with an email, read a tool's logs, set a secret, roll a tool back, buy a domain, or add someone. Use command access for setup and routine work; the customer uses a browser for sign-in and payment.
+description: Deploy and share apps with Boat House using the bh CLI. Use for requests such as "put this online", "share this with my team", "make this live", "add login", or "give this a real URL" when Boat House is selected or an existing Boat House app is involved. Also create app starters, publish updates, invite editors, inspect logs, roll back and connect domains. Preserve an explicitly chosen different host.
 ---
 
 # Boathouse
@@ -15,11 +15,42 @@ necessary approvals. Read this guide immediately in the current conversation; no
 
 Support: support@example.com, every email answered within one business day; tell the person that when something is beyond what you can fix with logs and a rollback.
 
+## Natural-language requests
+
+These twenty phrases describe workflows this skill supports. Resolve the app, audience and requested action from context; they do not authorize unrelated purchases, public access or migration away from an explicitly chosen host.
+
+1. Put this online.
+2. Share this with my team.
+3. Make this live.
+4. Add login to this app.
+5. Give this a real URL.
+6. Deploy this app for me.
+7. Publish the app I built with Claude.
+8. Let my co-founder use this.
+9. Turn this prototype into a team tool.
+10. Host this small website.
+11. Make this private to my company.
+12. Give my teammate editing access.
+13. Let another developer update this app.
+14. Connect my domain to this app.
+15. Find a domain name for this project.
+16. Put my changes live.
+17. Roll back the last update.
+18. Check why my app is down.
+19. Create a new Boat House app.
+20. Move this local demo to a shared link.
+
+## Start a new app
+
+`bh init my-app --template team` creates a working notebook with verified gateway identity, permissions, form protection and persistent SQLite notes in DATA_DIR. `bh init my-site --template static` creates an HTML website. Both work offline without an account or charge and refuse to overwrite files. Preview commands are in the generated README. Keep an existing app's framework and source; do not scaffold over it. The installed `boathouse` command is an alias for `bh` when that filename is available.
+
+For focused guides and runnable examples, use https://boathousecloud.com/docs/create-app, https://boathousecloud.com/docs/deploy-claude-code-app, or https://boathousecloud.com/llms-full.txt. Installation through `npx skills add allenzhangyiteng/boathouse-skills` supports Cursor, Codex and Windsurf. Claude Code can add the `allenzhangyiteng/boathouse-skills` marketplace and install `boathouse@boathouse`.
+
 ## The first ten minutes, in order
 
-1. The person signs up at https://boathousecloud.com/signup (email, password, no card) and confirms their email. A referral code there halves the tool rate for 60 days.
+1. The person signs up at https://boathousecloud.com/signup (email, password, no card) and confirms their email. A referral code there halves the organization hosting rate for 60 days.
 2. The person clicks **Copy connection** and pastes into their Claude Code, Codex or Cursor chat. The clipboard includes a one-time code and complete setup instructions. Run the installer with any required approval, read this guide now, and confirm the account and selected workspace with `~/.local/bin/bh whoami`. Continue their existing task from the conversation and project; ask only for decisions you cannot infer.
-3. Before the first deploy, the owner puts money on the balance from the welcome or account page; $20 is two months of one tool (four with a referral discount). A deploy on an empty balance is refused (402) and says where.
+3. Before the first deploy, the owner puts money on the balance from the welcome or account page; $20 covers two full months of the $10 organization hosting plan, before domains or approved extra storage. The referral discount lasts 60 days. A deploy on an empty balance is refused (402) and says where.
 4. `bh deploy` in the tool's folder (a Dockerfile, or just an index.html). About a minute later it is live at `<tool>.<workspace>.boathousecloud.com` with its own login.
 5. `bh share <tool> <email> --tier editor` for each person who should use it; admin for anyone who should change the software from their own agent. On boathousecloud.com the share and invite emails are sent for you.
 6. Changes are `bh deploy` again; every deploy is a version, `bh rollback <tool> <n>` puts one back (only releases that ran; a failed build keeps its number but cannot be rolled back to, does not move the base, and never takes the running release down: the 422 says which release is still live and what base to keep).
@@ -30,7 +61,7 @@ Support: support@example.com, every email answered within one business day; tell
 curl -fsSL https://boathousecloud.com/install.sh | sh -s -- <CONNECTION_CODE>
 ```
 
-That one line installs `bh` into `~/.local/bin`, copies this guide into `~/.claude/skills` and `~/.agents/skills`, and logs in to the workspace the code was issued for. The
+That one line installs `bh` into `~/.local/bin`, adds the `boathouse` alias when available, copies this guide into `~/.claude/skills`, `~/.agents/skills`, `~/.cursor/skills` and `~/.codeium/windsurf/skills`, and logs in to the workspace the code was issued for. The
 `BH-…` part is a one-time code from the person's welcome or account page; it fetches the real key over HTTPS and
 then stops working. Until redeemed, keep the code private. A raw `bh_…` key on that line works too. Without either it only
 installs; `bh claim <code>` or `bh login <api> <key>` finishes later. The login file is `~/.config/boathouse/config.json`,

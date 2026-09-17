@@ -29,7 +29,7 @@ from pathlib import Path
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 
-from . import checkout, resources, auth, billing, config, db, deploy, hosts, legal, mail, pages, referrals
+from . import checkout, resources, auth, billing, config, db, deploy, hosts, legal, mail, pages, referrals, agent_docs
 
 router = APIRouter()
 CSRF = "account"
@@ -190,6 +190,9 @@ p.write_text('#!' + sys.executable + '\n' + source.split('\n', 1)[1])
 PY
 chmod +x "$TMP"; mv "$TMP" "$DIR/bh"
 echo "Installed $DIR/bh"
+if [ ! -e "$DIR/boathouse" ] && [ ! -L "$DIR/boathouse" ]; then
+  ln -s bh "$DIR/boathouse"
+fi
 # Keep future shells convenient; the agent can use the full path immediately.
 case ":$PATH:" in
   *":$DIR:"*) ;;
@@ -202,7 +205,7 @@ case ":$PATH:" in
     ;;
 esac
 # Install the guide for future sessions. Read the URL now to use it in this session.
-for BASE in "$HOME/.claude/skills" "$HOME/.agents/skills"; do
+for BASE in "$HOME/.claude/skills" "$HOME/.agents/skills" "$HOME/.cursor/skills" "$HOME/.codeium/windsurf/skills"; do
   if mkdir -p "$BASE/boathouse" && $GET "https://$P/skill.md" > "$TMP"; then
     cp "$TMP" "$BASE/boathouse/SKILL.md"
   else
@@ -230,6 +233,7 @@ def install_sh(request: Request):
 
 
 @router.get("/bh")
+@router.get("/boathouse")
 def cli_file(request: Request):
     f = _repo_file("cli", "bh")
     if not _platform(request) or f is None:
@@ -298,7 +302,40 @@ def privacy_page(request: Request):
 def docs_page(request: Request):
     if not _platform(request):
         raise HTTPException(404)
-    return HTMLResponse(pages.docs(_skill_text(), config.PLATFORM_DOMAIN))
+    return HTMLResponse(pages.docs(agent_docs.index_markdown() + "\n" + _skill_text(), config.PLATFORM_DOMAIN))
+
+
+@router.get("/docs/{slug}")
+def guide_page(slug: str, request: Request):
+    if not _platform(request):
+        raise HTTPException(404)
+    markdown = slug.endswith(".md")
+    key = slug[:-3] if markdown else slug
+    if key not in agent_docs.GUIDES:
+        raise HTTPException(404)
+    body = agent_docs.read(key)
+    if markdown:
+        return PlainTextResponse(body, media_type="text/markdown; charset=utf-8")
+    return HTMLResponse(agent_docs.render(key, config.PLATFORM_DOMAIN))
+
+
+@router.get("/llms-full.txt")
+def llms_full(request: Request):
+    if not _platform(request):
+        raise HTTPException(404)
+    body = "# Boat House: complete agent guide\n\n" + _skill_text()
+    for slug in agent_docs.GUIDES:
+        body += f"\n\n---\nSource: https://{config.PLATFORM_DOMAIN}/docs/{slug}\n\n" + agent_docs.read(slug)
+    return PlainTextResponse(body, media_type="text/plain; charset=utf-8")
+
+
+@router.get("/.well-known/mcp-registry-auth")
+def registry_proof(request: Request):
+    # Only the public ownership proof is served; the signing key stays off-host.
+    proof = SITE / "mcp-registry-auth.txt"
+    if not _platform(request) or not proof.is_file():
+        raise HTTPException(404)
+    return PlainTextResponse(proof.read_text(), media_type="text/plain")
 
 
 @router.get("/examples/hello/{name}")
@@ -324,6 +361,14 @@ def llms_txt(request: Request):
 > The Google Doc for small software: an agent puts a tool online with one command, shares it like a document, $10 a month per organization for up to five lightweight tools.
 
 - [How to use bh, every command](https://{p}/skill.md): the skill file, markdown
+- [Complete documentation](https://{p}/llms-full.txt): every workflow in one plain-text response
+- [Install in Cursor, Codex or Windsurf](https://{p}/docs/install-agent): npx skills add allenzhangyiteng/boathouse-skills
+- [Create a working app](https://{p}/docs/create-app): bh init, offline team and static starters
+- [Deploy a Claude Code app with team login](https://{p}/docs/deploy-claude-code-app): account, preview, deploy, verify
+- [Share with teammates](https://{p}/docs/share-with-team): Viewer, Editor and Admin
+- [Publish a static website](https://{p}/docs/publish-static-website): private preview to an explicitly public URL
+- [Add login to an existing app](https://{p}/docs/add-team-login): gateway identity and app permissions
+- [Connect a real domain](https://{p}/docs/connect-domain): existing domains and approved purchases
 - [Install](https://{p}/install.sh): curl -fsSL https://{p}/install.sh | sh -s -- <one-time connection code>
 - [Blog](https://{p}/blog): plain answers about hosting the tools you build with AI, with logins, domains and costs
 - [Example tool](https://{p}/examples/hello/app.py): a complete tool that verifies the signed identity headers; its [Dockerfile](https://{p}/examples/hello/Dockerfile)

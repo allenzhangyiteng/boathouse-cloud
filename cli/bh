@@ -7,6 +7,7 @@
   bh whoami | bh logout <workspace>   your key is you, in every workspace you belong to; aim a command with --ws <workspace> or name a tool <workspace>/<tool>
   bh mail status | set --host ... --user ... | test   (host owner) the mailbox Boat House sends share emails from
   bh deploy [--name "Finance"] [--note "why"] [--slug finance]     in the tool's folder
+  bh init [folder] [--template team|static] [--name "My app"]   create a local starter; no account or charge
   bh ls | bh status <tool> | bh logs <tool> [--tail N] [--since 1h]
   bh rollback <tool> [--to N] | bh restart <tool> | bh releases <tool>
   bh share <tool> <email> --tier viewer|editor|admin [--label x] | bh unshare <tool> <email>   prints an invite link for new people
@@ -253,6 +254,58 @@ def guess_slug(root: Path) -> str:
 
 
 # ---- commands ------------------------------------------------------------------------
+
+# BEGIN EMBEDDED STARTERS
+STARTER_FILES = json.loads('{"team": {"app.py": "\\"\\"\\"A shared team notebook. Python standard library; no third-party dependencies.\\n\\nLocal preview: python3 app.py --local (loopback only; synthetic identity).\\nBoat House supplies PORT, DATA_DIR, BOATHOUSE_TOOL and BOATHOUSE_SIGNING_KEY.\\n\\"\\"\\"\\nimport argparse\\nimport hashlib\\nimport hmac\\nimport html\\nimport os\\nimport secrets\\nimport sqlite3\\nimport time\\nfrom http.server import BaseHTTPRequestHandler, ThreadingHTTPServer\\nfrom pathlib import Path\\nfrom urllib.parse import parse_qs\\n\\nLOCAL = False\\nKEY = b\\"\\"\\nTOOL = \\"\\"\\nDATA = Path(\\".local-data\\")\\n\\n\\ndef signature(message):\\n    return hmac.new(KEY, message.encode(), hashlib.sha256).hexdigest()\\n\\n\\ndef identity(headers):\\n    if LOCAL:\\n        return \\"local@example.test\\", \\"admin\\"\\n    user, tier, labels, ts, sig = [headers.get(\\"X-Boathouse-\\" + k, \\"\\") for k in (\\"User\\", \\"Tier\\", \\"Labels\\", \\"Ts\\", \\"Sig\\")]\\n    try:\\n        fresh = abs(time.time() - int(ts)) <= 300\\n    except ValueError:\\n        fresh = False\\n    expected = signature(\\"|\\".join([user, tier, labels, TOOL, ts]))\\n    if not fresh or tier not in (\\"viewer\\", \\"editor\\", \\"admin\\") or not hmac.compare_digest(expected, sig):\\n        return None\\n    return user, tier\\n\\n\\ndef csrf(user):\\n    stamp = str(int(time.time()))\\n    return stamp + \\".\\" + signature(\\"form|\\" + user + \\"|\\" + stamp)\\n\\n\\ndef valid_csrf(user, token):\\n    try:\\n        stamp, sig = token.split(\\".\\", 1)\\n        return 0 <= time.time() - int(stamp) <= 3600 and hmac.compare_digest(sig, signature(\\"form|\\" + user + \\"|\\" + stamp))\\n    except (ValueError, TypeError):\\n        return False\\n\\n\\ndef database():\\n    return sqlite3.connect(DATA / \\"notes.sqlite3\\", timeout=10)\\n\\n\\nclass Handler(BaseHTTPRequestHandler):\\n    def respond(self, status, body, content_type=\\"text/html; charset=utf-8\\"):\\n        raw = body.encode()\\n        self.send_response(status)\\n        self.send_header(\\"Content-Type\\", content_type)\\n        self.send_header(\\"Content-Length\\", str(len(raw)))\\n        self.send_header(\\"Cache-Control\\", \\"no-store\\")\\n        self.send_header(\\"X-Content-Type-Options\\", \\"nosniff\\")\\n        self.send_header(\\"Content-Security-Policy\\", \\"default-src \'none\'; style-src \'unsafe-inline\'; form-action \'self\'; frame-ancestors \'none\'; base-uri \'none\'\\")\\n        self.end_headers()\\n        self.wfile.write(raw)\\n\\n    def do_GET(self):\\n        if self.path == \\"/healthz\\":\\n            return self.respond(200, \\"ok\\", \\"text/plain\\")\\n        if self.path != \\"/\\":\\n            return self.respond(404, \\"Not found\\")\\n        who = identity(self.headers)\\n        if who is None:\\n            return self.respond(403, \\"Open this app through its Boat House address.\\")\\n        user, tier = who\\n        with database() as c:\\n            notes = c.execute(\\"SELECT author, body FROM notes ORDER BY id DESC LIMIT 50\\").fetchall()\\n        entries = \\"\\".join(\\"<article><p>\\" + html.escape(body) + \\"</p><small>\\" + html.escape(author or \\"Guest\\") + \\"</small></article>\\" for author, body in notes)\\n        form = (\'<form method=\\"post\\" action=\\"/notes\\"><input type=\\"hidden\\" name=\\"csrf\\" value=\\"\' + csrf(user) + \'\\"><label for=\\"note\\">What should your team know?</label><textarea id=\\"note\\" name=\\"note\\" maxlength=\\"1000\\" required></textarea><button>Add a note</button></form>\') if tier in (\\"editor\\", \\"admin\\") else \\"<p>You have view-only access.</p>\\"\\n        title = \\"Local preview\\" if LOCAL else \\"Team notebook\\"\\n        self.respond(200, \'<!doctype html><html lang=\\"en\\"><meta charset=\\"utf-8\\"><meta name=\\"viewport\\" content=\\"width=device-width,initial-scale=1\\"><title>Team notebook</title><style>body{font:17px system-ui;max-width:680px;margin:60px auto;padding:24px;color:#17282e;background:#f6f8f7}h1{font-size:40px;letter-spacing:-1.5px}article,form{background:white;padding:24px;border:1px solid #dce4e2;border-radius:16px;margin:16px 0}article p{white-space:pre-wrap}small{color:#536767}textarea{box-sizing:border-box;display:block;width:100%;min-height:90px;margin:12px 0;padding:12px;font:inherit;border:1px solid #b8c9c3;border-radius:8px}button{background:#176454;color:white;border:0;border-radius:8px;padding:12px 20px;font:inherit}a{color:#176454}</style><main><small>\' + title + \'</small><h1>A place to work together.</h1><p>Signed in as \' + html.escape(user or \\"Guest\\") + \' · \' + html.escape(tier) + \'</p>\' + form + (entries or \'<p>No notes yet. Add the first one.</p>\') + \'</main></html>\')\\n\\n    def do_POST(self):\\n        if self.path != \\"/notes\\":\\n            return self.respond(404, \\"Not found\\")\\n        who = identity(self.headers)\\n        if who is None or who[1] not in (\\"editor\\", \\"admin\\"):\\n            return self.respond(403, \\"Editor access is required.\\")\\n        try:\\n            size = int(self.headers.get(\\"Content-Length\\", \\"0\\"))\\n        except ValueError:\\n            return self.respond(400, \\"Invalid request\\")\\n        if not 0 < size <= 16384:\\n            return self.respond(413, \\"This note is too large.\\")\\n        if self.headers.get(\\"Content-Type\\", \\"\\").split(\\";\\", 1)[0] != \\"application/x-www-form-urlencoded\\":\\n            return self.respond(415, \\"Use the note form.\\")\\n        try:\\n            fields = parse_qs(self.rfile.read(size).decode(), max_num_fields=4)\\n        except (UnicodeError, ValueError):\\n            return self.respond(400, \\"Invalid form\\")\\n        if not valid_csrf(who[0], fields.get(\\"csrf\\", [\\"\\"])[0]):\\n            return self.respond(403, \\"Reload the page and try again.\\")\\n        note = fields.get(\\"note\\", [\\"\\"])[0].strip()\\n        if not note or len(note) > 1000:\\n            return self.respond(400, \\"Write a note of 1 to 1,000 characters.\\")\\n        with database() as c:\\n            c.execute(\\"INSERT INTO notes (author, body) VALUES (?, ?)\\", (who[0], note))\\n        self.send_response(303)\\n        self.send_header(\\"Location\\", \\"/\\")\\n        self.send_header(\\"Content-Length\\", \\"0\\")\\n        self.end_headers()\\n\\n    def log_message(self, *args):\\n        pass  # Do not log user identities or note contents.\\n\\n\\ndef main():\\n    global LOCAL, KEY, TOOL, DATA\\n    parser = argparse.ArgumentParser()\\n    parser.add_argument(\\"--local\\", action=\\"store_true\\", help=\\"synthetic login, binds only to 127.0.0.1\\")\\n    args = parser.parse_args()\\n    LOCAL = args.local\\n    if LOCAL and (os.environ.get(\\"BOATHOUSE_TOOL\\") or os.environ.get(\\"BOATHOUSE_SIGNING_KEY\\")):\\n        parser.error(\\"Local preview cannot run with hosted Boat House credentials.\\")\\n    if not LOCAL and not all(os.environ.get(k) for k in (\\"BOATHOUSE_SIGNING_KEY\\", \\"BOATHOUSE_TOOL\\", \\"DATA_DIR\\")):\\n        parser.error(\\"Use --local to preview, or deploy with bh deploy.\\")\\n    KEY = secrets.token_bytes(32) if LOCAL else os.environ[\\"BOATHOUSE_SIGNING_KEY\\"].encode()\\n    TOOL = \\"local\\" if LOCAL else os.environ[\\"BOATHOUSE_TOOL\\"]\\n    DATA = Path(\\".local-data\\" if LOCAL else os.environ[\\"DATA_DIR\\"])\\n    DATA.mkdir(parents=True, exist_ok=True)\\n    with database() as c:\\n        c.execute(\\"CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY, author TEXT NOT NULL, body TEXT NOT NULL)\\")\\n    host, port = (\\"127.0.0.1\\" if LOCAL else \\"0.0.0.0\\"), int(os.environ.get(\\"PORT\\", \\"8080\\"))\\n    print(f\\"Team notebook listening on http://{host}:{port}\\", flush=True)\\n    ThreadingHTTPServer((host, port), Handler).serve_forever()\\n\\n\\nif __name__ == \\"__main__\\":\\n    main()\\n", "Dockerfile": "FROM python:3.12-slim\\nWORKDIR /app\\nCOPY app.py .\\nENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1\\nCMD [\\"python\\", \\"app.py\\"]\\n", "README.md": "# Your team notebook\\n\\nA runnable Boat House starter with team login, Viewer/Editor/Admin roles and persistent notes. It uses Python\'s standard library and SQLite in `DATA_DIR`; no package installation is needed. Boat House also supplies `DATABASE_URL` if you later switch to PostgreSQL.\\n\\n## Preview\\n\\n```sh\\npython3 app.py --local\\n```\\n\\nOpen http://127.0.0.1:8080. Preview uses a synthetic admin, binds only to loopback, and saves notes in `.local-data/`. Never use preview mode for public hosting.\\n\\n## Publish\\n\\nConnect your agent using **Copy connection** at https://boathousecloud.com/account and add hosting credit. Then your agent runs:\\n\\n```sh\\nbh whoami\\nbh deploy\\n```\\n\\nThe app is private by default. Share with a real teammate after confirming their email and role:\\n\\n```sh\\nbh share YOUR_APP_SLUG teammate@example.com --tier editor\\n```\\n\\nReplace the two placeholders. Viewers can read; editors can add notes; admins can change code and sharing. All invited readers see the same notebook. Add record-level authorization before storing data that only some teammates should see.\\n\\nUpdate by editing `app.py` and running `bh deploy` again. Notes persist in the mounted data folder. This starter verifies signed gateway identity, rejects stale identities and checks form tokens and write permissions. These checks do not make an arbitrary modified app secure; review your changes and https://boathousecloud.com/security before storing sensitive data.\\n", ".gitignore": ".local-data/\\n__pycache__/\\n.env\\n.env.*\\n!.env.example\\n.venv/\\n*.sqlite3\\n", ".dockerignore": ".local-data\\n.env\\n.env.*\\n.git\\n__pycache__\\n*.sqlite3\\n"}, "static": {"index.html": "<!doctype html>\\n<html lang=\\"en\\">\\n<meta charset=\\"utf-8\\">\\n<meta name=\\"viewport\\" content=\\"width=device-width,initial-scale=1\\">\\n<title>My Boat House website</title>\\n<style>\\nbody{font:18px system-ui;background:#f5f8f7;color:#17392e;margin:0;min-height:100vh;display:grid;place-items:center}main{max-width:640px;padding:48px}h1{font-size:clamp(40px,8vw,68px);letter-spacing:-3px;line-height:1.05}p{line-height:1.7;color:#4b675c}small{letter-spacing:.12em;text-transform:uppercase}\\n</style>\\n<main><small>Your next idea</small><h1>Something useful starts here.</h1><p>Edit this page, ask your agent to put it online, and share the link. Your files stay yours.</p></main>\\n</html>\\n", "README.md": "# Your website\\n\\nEdit `index.html`. Preview locally:\\n\\n```sh\\npython3 -m http.server 8080 --bind 127.0.0.1\\n```\\n\\nOpen http://127.0.0.1:8080. After connecting your agent and adding hosting credit:\\n\\n```sh\\nbh whoami\\nbh deploy\\n```\\n\\nDeployments are private by default. For a public website, ask your agent to run `bh access YOUR_APP_SLUG public` after confirming that anyone should be able to read it. Replace `YOUR_APP_SLUG` with the slug in `boathouse.json`. Never put credentials, confidential files or private data in a static website; visitors can download the deployed files. Static sites cannot securely hold API keys or enforce data writes. Use the team starter for a server app.\\n", ".gitignore": ".env\\n.env.*\\n!.env.example\\nnode_modules/\\n"}}')
+# END EMBEDDED STARTERS
+
+
+def cmd_init(a):
+    """Create a complete starter offline, without replacing any existing file."""
+    target = Path(a.path or ".").expanduser()
+    if target.is_symlink() or (target.exists() and not target.is_dir()):
+        die("Choose an ordinary folder for your app; the target is a file or symbolic link.")
+    root = target.resolve()
+    slug = a.slug or re.sub(r"[^a-z0-9-]+", "-", root.name.lower()).strip("-")[:31].rstrip("-")
+    if not re.fullmatch(r"[a-z][a-z0-9-]{1,30}", slug):
+        die("Choose --slug with 2–31 lowercase letters, numbers or hyphens, starting with a letter.")
+    name = a.name or slug.replace("-", " ").title()
+    if not name.strip() or len(name) > 100:
+        die("Choose an app name between 1 and 100 characters.")
+    files = dict(STARTER_FILES[a.template])
+    files["boathouse.json"] = json.dumps({"schemaVersion": 1, "slug": slug, "name": name}, indent=2) + "\n"
+    files["AGENTS.md"] = """# Boat House app
+
+Read https://boathousecloud.com/skill.md for deployment and sharing commands.
+The app's slug and name are in boathouse.json; preserve its base/workspace fields after publishing.
+Run locally using README.md. Keep secrets in environment variables, never in source or static assets.
+Store persistent data in DATA_DIR; DATABASE_URL is available for PostgreSQL.
+Preserve signed identity verification, timestamp checks, CSRF and app-level access checks.
+Use bh deploy for a requested publication. Default access is private; make public only when intended.
+Give teammates the requested Viewer, Editor or Admin role; Admin includes code, secrets and deletion.
+Installing or previewing is free; hosting uses the owner's funded Boat House balance.
+Keep approved budgets, domain quotes and idempotency IDs intact; never guess consent to buy or refill.
+"""
+    conflicts = [filename for filename in files if (root / filename).exists() or (root / filename).is_symlink()]
+    if conflicts:
+        die("Nothing changed. These files already exist: " + ", ".join(sorted(conflicts)) + ". Choose a new folder to keep your work.")
+    root.mkdir(parents=True, exist_ok=True)
+    created = []
+    try:
+        for filename, body in files.items():
+            path = root / filename
+            with path.open("x", encoding="utf-8") as f:
+                created.append(path)
+                f.write(body)
+    except OSError:
+        for path in created:
+            path.unlink(missing_ok=True)
+        raise
+    print(f"Created {a.template} starter at {root}")
+    print(f"App: {slug}. No account needed and nothing has been published or charged.")
+    print("Preview from that folder: " + ("python3 app.py --local" if a.template == "team" else "python3 -m http.server 8080 --bind 127.0.0.1"))
+    print("To publish: connect at https://boathousecloud.com/account, add hosting credit, then run bh deploy.")
+
 
 def cmd_signup(a):
     api = (a.api or (load_cfg()["api"] if CONFIG.exists() else "https://api.boathousecloud.com")).rstrip("/")
@@ -601,7 +654,7 @@ def cmd_trust(a):
 
 def cmd_skill(a):
     body = fetch_platform("/skill.md")
-    for agent_dir in (".claude", ".agents"):
+    for agent_dir in (".claude", ".agents", ".cursor", ".codeium/windsurf"):
         dest = Path.home() / agent_dir / "skills" / "boathouse" / "SKILL.md"
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(body)
@@ -1155,6 +1208,7 @@ def main():
     p = argparse.ArgumentParser(prog="bh", description="Boathouse: deploy small software behind one login.")
     p.add_argument("--ws", help="the workspace to aim this command at, when you are logged in to several")
     sp = p.add_subparsers(dest="cmd", required=False)
+    s = sp.add_parser("init", help="create a working app locally; no account or charge"); s.add_argument("path", nargs="?", default="."); s.add_argument("--template", choices=["team", "static"], default="team"); s.add_argument("--name"); s.add_argument("--slug"); s.set_defaults(f=cmd_init)
     s = sp.add_parser("logout"); s.add_argument("workspace", nargs="?"); s.set_defaults(f=cmd_logout)
     s = sp.add_parser("signup"); s.add_argument("name"); s.add_argument("email"); s.add_argument("--api"); s.add_argument("--code", help="a referral code: half price for 60 days"); s.set_defaults(f=cmd_signup)
     s = sp.add_parser("login"); s.add_argument("api"); s.add_argument("key"); s.set_defaults(f=cmd_login)

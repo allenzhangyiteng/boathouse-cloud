@@ -1,0 +1,6 @@
+.local-data
+.env
+.env.*
+.git
+__pycache__
+*.sqlite3
