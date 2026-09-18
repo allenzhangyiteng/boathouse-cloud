@@ -1,5 +1,6 @@
 """The two pages every service needs, in plain words. Markdown, rendered by pages.legal. Dates are the last change."""
 UPDATED = "September 16, 2026"
+PRIVACY_UPDATED = "September 18, 2026"
 OPERATOR = "Boathouse Cloud"          # confirm the legal entity name once the company is formed
 
 TERMS = f"""
@@ -76,7 +77,7 @@ These terms are governed by the laws of the State of Delaware, United States, wi
 """
 
 PRIVACY = f"""
-**In one paragraph.** We collect what we need to run your workspace: your email, a password we store only as a hash, the name of your workspace, and whatever you put in your tools. Payments go through Stripe; we never see your card number. We do not sell data, run ads, or use tracking scripts. Your tools live on our servers in New York, backed up nightly for 30 days. You can export or delete everything yourself.
+**In one paragraph.** We collect what we need to run your workspace: your email, a password we store only as a hash, the name of your workspace, and whatever you put in your tools. Payments go through Stripe; we never see your card number. We do not sell data, run ads, or use tracking scripts. Your tools run on OVHcloud servers in Virginia, United States. Nightly application backups are stored in DigitalOcean Spaces in New York, United States, and kept for 30 days. You can export or delete everything yourself.
 
 ## What we collect
 
@@ -97,7 +98,7 @@ To run the Service: sign you in, host and back up your tools, meter and charge y
 
 ## Who else sees it
 
-Only the companies that help us run the Service, each under its own privacy terms and only for that purpose: **DigitalOcean** (servers and backup storage, New York), **Stripe** (payments), **Resend** (sending email), **Porkbun** (domain registration), and **Let's Encrypt** (HTTPS certificates). We share data with the law only when the law requires it, and we tell you when we are allowed to.
+Only the companies that help us run the Service, each under its own privacy terms and only for that purpose: **OVHcloud** (primary hosting in Virginia, United States, and server backups), **DigitalOcean Spaces** (nightly application backup storage in New York, United States), **Stripe** (payments), **Resend** (sending email), **Porkbun** (domain registration), and **Let's Encrypt** (HTTPS certificates). We share data with the law only when the law requires it, and we tell you when we are allowed to.
 
 ## The people who use your tools
 
@@ -109,7 +110,7 @@ We set only the cookies that keep you signed in: one on boathousecloud.com for y
 
 ## Where it lives and for how long
 
-Your data lives on servers in New York, United States, and in backup storage there. Tools and their data stay as long as your workspace exists. When you delete a tool with purge, its data is removed at once and leaves the backups within 30 days. When a workspace closes, we remove its data 30 days later. Logs are kept for days, not months.
+Your tools and primary data run on OVHcloud servers in Virginia, United States. Nightly application backups are stored in DigitalOcean Spaces in New York, United States, and retained for 30 days. OVHcloud also provides automated server backups. Tools and their data stay as long as your workspace exists. When you delete a tool with purge, its data is removed at once and leaves the backups within 30 days. When a workspace closes, we remove its data 30 days later. Logs are kept for days, not months.
 
 ## Your rights
 

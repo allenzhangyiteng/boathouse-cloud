@@ -295,7 +295,7 @@ def terms_page(request: Request):
 def privacy_page(request: Request):
     if not _platform(request):
         raise HTTPException(404)
-    return HTMLResponse(pages.legal("Privacy Policy", legal.PRIVACY, legal.UPDATED, config.PLATFORM_DOMAIN))
+    return HTMLResponse(pages.legal("Privacy Policy", legal.PRIVACY, legal.PRIVACY_UPDATED, config.PLATFORM_DOMAIN))
 
 
 @router.get("/docs")
